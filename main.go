@@ -153,7 +153,7 @@ func getScriptDir() (string, error) {
 
 func readTxtFile(path string) ([]string, error) {
 	var lines []string
-	f, err := os.OpenFile(path, os.O_RDONLY, 0755)
+	f, err := ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
@@ -272,8 +272,7 @@ func parseArgs() *Args {
 }
 
 func makeDirs(path string) error {
-	err := os.MkdirAll(path, 0755)
-	return err
+	return MakeDirs(path)
 }
 
 func fileExists(path string) (bool, error) {
@@ -631,7 +630,7 @@ func queryQuality(streamUrl string) *Quality {
 }
 
 func downloadTrack(trackPath, _url string) error {
-	f, err := os.OpenFile(trackPath, os.O_CREATE|os.O_WRONLY, 0755)
+	f, err := OpenFile(trackPath, os.O_CREATE|os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
@@ -1207,7 +1206,7 @@ func getSegUrls(manifestUrl, query string) ([]string, error) {
 }
 
 func downloadVideo(videoPath, _url string) error {
-	f, err := os.OpenFile(videoPath, os.O_CREATE|os.O_WRONLY, 0755)
+	f, err := OpenFile(videoPath, os.O_CREATE|os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
@@ -1251,7 +1250,7 @@ func downloadVideo(videoPath, _url string) error {
 }
 
 func downloadLstream(videoPath, baseUrl string, segUrls []string) error {
-	f, err := os.OpenFile(videoPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	f, err := OpenFile(videoPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
@@ -1349,7 +1348,7 @@ func getNextChapStart(chapters []interface{}, idx int) float64 {
 
 
 func writeChapsFile(chapters []interface{}, dur int) error {
-	f, err := os.OpenFile(chapsFileFname, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0755)
+	f, err := OpenFile(chapsFileFname, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0)
 	if err != nil {
 		return err
 	}
