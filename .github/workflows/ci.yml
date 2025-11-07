@@ -12,6 +12,7 @@ jobs:
     strategy:
       matrix:
         go-version: [1.21.x, 1.22.x]
+      max-parallel: 1  # Run tests sequentially to avoid file conflicts
 
     steps:
     - uses: actions/checkout@v4
@@ -21,16 +22,35 @@ jobs:
       with:
         go-version: ${{ matrix.go-version }}
 
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
+
+    - name: Set up test environment
+      run: |
+        # Create unique temp directory for this test run
+        export TMPDIR=/tmp/go-test-${{ matrix.go-version }}-${{ github.run_id }}
+        mkdir -p $TMPDIR
+        echo "TMPDIR=$TMPDIR" >> $GITHUB_ENV
+
     - name: Cache Go modules
       uses: actions/cache@v3
       with:
         path: ~/go/pkg/mod
-        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        key: ${{ runner.os }}-go-${{ matrix.go-version }}-${{ hashFiles('**/go.sum') }}
         restore-keys: |
-          ${{ runner.os }}-go-
+          ${{ runner.os }}-go-${{ matrix.go-version }}-
+      continue-on-error: true  # Don't fail if cache restore fails
 
     - name: Download dependencies
       run: go mod download
+
+    - name: Clean previous test artifacts
+      run: |
+        # Clean up any leftover test files
+        find . -name "*.out" -type f -delete 2>/dev/null || true
+        find . -name "temp_*" -type f -delete 2>/dev/null || true
 
     - name: Run unit tests (stable packages)
       run: go test ./pkg/models ./pkg/logger ./pkg/fsutil ./pkg/config ./pkg/api -v -race
@@ -71,6 +91,11 @@ jobs:
       uses: actions/setup-go@v4
       with:
         go-version: 1.22.x
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y ffmpeg
 
     - name: Build
       run: go build -v ./...
