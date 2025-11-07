@@ -38,14 +38,14 @@ func main() {
 	// Parse configuration
 	cfg, err := config.ParseCfg()
 	if err != nil {
-		logger.GetLogger().Error("Failed to parse config/args", "error", err)
+		logger.GetLogger().WithError(err).Error("Failed to parse config/args")
 		os.Exit(1)
 	}
 
 	// Create output directory
 	err = fsutil.MakeDirs(cfg.OutPath)
 	if err != nil {
-		logger.GetLogger().Error("Failed to make output folder", "error", err)
+		logger.GetLogger().WithError(err).Error("Failed to make output folder")
 		os.Exit(1)
 	}
 
@@ -57,7 +57,7 @@ func main() {
 	if cfg.Token == "" {
 		token, err = apiClient.Auth(cfg.Email, cfg.Password)
 		if err != nil {
-			logger.GetLogger().Error("Failed to authenticate", "error", err)
+			logger.GetLogger().WithError(err).Error("Failed to authenticate")
 			os.Exit(1)
 		}
 	} else {
@@ -67,21 +67,21 @@ func main() {
 	// Get user info
 	userId, err := apiClient.GetUserInfo(token)
 	if err != nil {
-		logger.GetLogger().Error("Failed to get user info", "error", err)
+		logger.GetLogger().WithError(err).Error("Failed to get user info")
 		os.Exit(1)
 	}
 
 	// Get subscription info
 	subInfo, err := apiClient.GetSubInfo(token)
 	if err != nil {
-		logger.GetLogger().Error("Failed to get subscription info", "error", err)
+		logger.GetLogger().WithError(err).Error("Failed to get subscription info")
 		os.Exit(1)
 	}
 
 	// Extract legacy token
 	legacyToken, uguID, err := models.ExtractLegToken(token)
 	if err != nil {
-		logger.GetLogger().Error("Failed to extract legacy token", "error", err)
+		logger.GetLogger().WithError(err).Error("Failed to extract legacy token")
 		os.Exit(1)
 	}
 

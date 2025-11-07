@@ -57,7 +57,7 @@ func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamPara
 	} else {
 		_meta, err := p.apiClient.GetAlbumMeta(albumID)
 		if err != nil {
-			logger.GetLogger().Error("Failed to get album metadata", "error", err, "album_id", albumID)
+			logger.GetLogger().WithError(err).WithField("album_id", albumID).Error("Failed to get album metadata")
 			return err
 		}
 		meta = _meta.Response
@@ -118,7 +118,7 @@ func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamPara
 func (p *Processor) ProcessArtist(artistId string, streamParams *models.StreamParams) error {
 	meta, err := p.apiClient.GetArtistMeta(artistId)
 	if err != nil {
-		logger.GetLogger().Error("Failed to get artist metadata", "error", err, "artist_id", artistId)
+		logger.GetLogger().WithError(err).WithField("artist_id", artistId).Error("Failed to get artist metadata")
 		return err
 	}
 
@@ -158,7 +158,7 @@ func (p *Processor) ProcessArtist(artistId string, streamParams *models.StreamPa
 func (p *Processor) ProcessPlaylist(plistId, legacyToken string, streamParams *models.StreamParams, cat bool) error {
 	_meta, err := p.apiClient.GetPlistMeta(plistId, p.config.Email, legacyToken, cat)
 	if err != nil {
-		logger.GetLogger().Error("Failed to get playlist metadata", "error", err, "playlist_id", plistId)
+		logger.GetLogger().WithError(err).WithField("playlist_id", plistId).Error("Failed to get playlist metadata")
 		return err
 	}
 
@@ -212,7 +212,7 @@ func (p *Processor) ProcessVideo(videoID, uguID string, streamParams *models.Str
 	} else {
 		m, err := p.apiClient.GetAlbumMeta(videoID)
 		if err != nil {
-			logger.GetLogger().Error("Failed to get video metadata", "error", err, "video_id", videoID)
+			logger.GetLogger().WithError(err).WithField("video_id", videoID).Error("Failed to get video metadata")
 			return err
 		}
 		meta = m.Response

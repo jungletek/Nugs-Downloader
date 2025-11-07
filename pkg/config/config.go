@@ -51,8 +51,8 @@ type Config struct {
 // Args represents command line arguments
 type Args struct {
 	Urls         []string `arg:"positional" help:"URLs to process"`
-	Format       int      `arg:"-f,--format" help:"Audio format (1-5)"`
-	VideoFormat  int      `arg:"-v,--video-format" help:"Video format (1-5)"`
+	Format       *int     `arg:"-f,--format" help:"Audio format (1-5)"`
+	VideoFormat  *int     `arg:"-v,--video-format" help:"Video format (1-5)"`
 	OutPath      string   `arg:"-o,--output" help:"Output directory"`
 	ForceVideo   bool     `arg:"--force-video" help:"Force video download"`
 	SkipVideos   bool     `arg:"--skip-videos" help:"Skip video downloads"`
@@ -67,11 +67,11 @@ func ParseCfg() (*Config, error) {
 	}
 
 	args := parseArgs()
-	if args.Format != -1 {
-		cfg.Format = args.Format
+	if args.Format != nil {
+		cfg.Format = *args.Format
 	}
-	if args.VideoFormat != -1 {
-		cfg.VideoFormat = args.VideoFormat
+	if args.VideoFormat != nil {
+		cfg.VideoFormat = *args.VideoFormat
 	}
 
 	// Validate format ranges
@@ -106,7 +106,7 @@ func ParseCfg() (*Config, error) {
 	// Process URLs
 	cfg.Urls, err = processUrls(args.Urls)
 	if err != nil {
-		logger.GetLogger().Error("Failed to process URLs", "error", err)
+		logger.GetLogger().WithError(err).Error("Failed to process URLs")
 		return nil, err
 	}
 
