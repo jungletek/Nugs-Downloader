@@ -430,7 +430,7 @@ func (suite *DownloaderTestSuite) TestTagAudioFile() {
 	}
 
 	// Test tagging (would fail without ffmpeg, but tests the function structure)
-	err = TagAudioFile(tempInput.Name(), tempOutput, "ffmpeg")
+	err = TagAudioFile(tempInput.Name(), tempOutput, "ffmpeg", metadata)
 	// We expect this to fail in test environment without ffmpeg, but structure is tested
 	if err != nil {
 		assert.Contains(suite.T(), err.Error(), "ffmpeg") // Should mention ffmpeg in error
@@ -459,7 +459,7 @@ func (suite *DownloaderTestSuite) TestTagVideoFile() {
 	}
 
 	// Test tagging (would fail without ffmpeg, but tests the function structure)
-	err = TagVideoFile(tempInput.Name(), tempOutput, "ffmpeg")
+	err = TagVideoFile(tempInput.Name(), tempOutput, "ffmpeg", metadata)
 	// We expect this to fail in test environment without ffmpeg, but structure is tested
 	if err != nil {
 		assert.Contains(suite.T(), err.Error(), "ffmpeg") // Should mention ffmpeg in error
@@ -502,7 +502,7 @@ func (suite *DownloaderTestSuite) TestTagAudioFile_MetadataValidation() {
 
 	// Test with empty metadata
 	emptyMetadata := &models.TrackMetadata{}
-	err = TagAudioFile(tempInput.Name(), tempOutput, "ffmpeg")
+	err = TagAudioFile(tempInput.Name(), tempOutput, "ffmpeg", emptyMetadata)
 	if err != nil {
 		assert.Contains(suite.T(), err.Error(), "ffmpeg")
 	}
@@ -512,7 +512,7 @@ func (suite *DownloaderTestSuite) TestTagAudioFile_MetadataValidation() {
 		Title:  "Only Title",
 		Artist: "", // Empty fields should be handled
 	}
-	err = TagAudioFile(tempInput.Name(), tempOutput+"_2.m4a", "ffmpeg")
+	err = TagAudioFile(tempInput.Name(), tempOutput+"_2.m4a", "ffmpeg", partialMetadata)
 	defer os.Remove(tempOutput + "_2.m4a")
 	if err != nil {
 		assert.Contains(suite.T(), err.Error(), "ffmpeg")
@@ -535,7 +535,7 @@ func (suite *DownloaderTestSuite) TestTagVideoFile_MetadataValidation() {
 	minimalMetadata := &models.TrackMetadata{
 		Title: "Video Title",
 	}
-	err = TagVideoFile(tempInput.Name(), tempOutput, "ffmpeg")
+	err = TagVideoFile(tempInput.Name(), tempOutput, "ffmpeg", minimalMetadata)
 	if err != nil {
 		assert.Contains(suite.T(), err.Error(), "ffmpeg")
 	}
