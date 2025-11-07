@@ -250,13 +250,20 @@ func (rm *ResumeManager) CleanupOldStates(maxAge time.Duration) error {
 			continue
 		}
 
-		info, err := entry.Info()
+		// Read the state file to check the UpdatedAt field
+		stateFile := filepath.Join(rm.stateDir, entry.Name())
+		data, err := os.ReadFile(stateFile)
 		if err != nil {
-			continue
+			continue // Skip files we can't read
 		}
 
-		if time.Since(info.ModTime()) > maxAge {
-			os.Remove(filepath.Join(rm.stateDir, entry.Name()))
+		var state ResumeState
+		if err := json.Unmarshal(data, &state); err != nil {
+			continue // Skip files we can't parse
+		}
+
+		if time.Since(state.UpdatedAt) > maxAge {
+			os.Remove(stateFile)
 		}
 	}
 
