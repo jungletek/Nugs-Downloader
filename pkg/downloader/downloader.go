@@ -695,21 +695,23 @@ func TagAudioFile(inputPath, outputPath, ffmpegNameStr string, metadata *models.
 	// Base arguments
 	args = append(args, "-hide_banner", "-i", inputPath)
 
-	// Add metadata flags
-	if metadata.Title != "" {
-		args = append(args, "-metadata", "title="+metadata.Title)
-	}
-	if metadata.Artist != "" {
-		args = append(args, "-metadata", "artist="+metadata.Artist)
-	}
-	if metadata.Album != "" {
-		args = append(args, "-metadata", "album="+metadata.Album)
-	}
-	if metadata.TrackNum > 0 {
-		args = append(args, "-metadata", fmt.Sprintf("track=%d", metadata.TrackNum))
-	}
-	if metadata.Year != "" {
-		args = append(args, "-metadata", "year="+metadata.Year)
+	// Add metadata flags (only if metadata is not nil)
+	if metadata != nil {
+		if metadata.Title != "" {
+			args = append(args, "-metadata", "title="+metadata.Title)
+		}
+		if metadata.Artist != "" {
+			args = append(args, "-metadata", "artist="+metadata.Artist)
+		}
+		if metadata.Album != "" {
+			args = append(args, "-metadata", "album="+metadata.Album)
+		}
+		if metadata.TrackNum > 0 {
+			args = append(args, "-metadata", fmt.Sprintf("track=%d", metadata.TrackNum))
+		}
+		if metadata.Year != "" {
+			args = append(args, "-metadata", "year="+metadata.Year)
+		}
 	}
 
 	// Copy codecs without re-encoding
@@ -735,15 +737,17 @@ func TagVideoFile(inputPath, outputPath, ffmpegNameStr string, metadata *models.
 	// Base arguments
 	args = append(args, "-hide_banner", "-i", inputPath)
 
-	// Add metadata flags
-	if metadata.Title != "" {
-		args = append(args, "-metadata", "title="+metadata.Title)
-	}
-	if metadata.Artist != "" {
-		args = append(args, "-metadata", "artist="+metadata.Artist)
-	}
-	if metadata.Album != "" {
-		args = append(args, "-metadata", "album="+metadata.Album)
+	// Add metadata flags (only if metadata is not nil)
+	if metadata != nil {
+		if metadata.Title != "" {
+			args = append(args, "-metadata", "title="+metadata.Title)
+		}
+		if metadata.Artist != "" {
+			args = append(args, "-metadata", "artist="+metadata.Artist)
+		}
+		if metadata.Album != "" {
+			args = append(args, "-metadata", "album="+metadata.Album)
+		}
 	}
 
 	// Copy codecs without re-encoding
