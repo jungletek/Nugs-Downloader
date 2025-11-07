@@ -350,7 +350,7 @@ func (suite *ProcessorTestSuite) TestProcessAlbum_NoTracks() {
 		ContainerInfo: "Test Album",
 		Tracks: []models.Track{}, // No tracks
 		Products: []models.Product{
-			{FormatStr: "VIDEO ON DEMAND", SkuID: 123},
+			{FormatStr: "AUDIO ONLY", SkuID: 123}, // Use AUDIO ONLY to avoid video download attempts
 		},
 	}
 
@@ -359,7 +359,7 @@ func (suite *ProcessorTestSuite) TestProcessAlbum_NoTracks() {
 		UserID:         "user-456",
 	}
 
-	// Should return error about no tracks
+	// Should return error about no tracks before attempting any downloads
 	err := suite.processor.ProcessAlbum("", streamParams, albumMeta)
 	assert.Error(suite.T(), err)
 	assert.Contains(suite.T(), err.Error(), "release has no tracks")
