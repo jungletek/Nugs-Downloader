@@ -246,7 +246,7 @@ func parseCfg() (*Config, error) {
 	}
 	cfg.Urls, err = processUrls(args.Urls)
 	if err != nil {
-		fmt.Println("Failed to process URLs.")
+		GetLogger().Error("Failed to process URLs", "error", err)
 		return nil, err
 	}
 	cfg.ForceVideo = args.ForceVideo
@@ -868,14 +868,14 @@ func processTrack(folPath string, trackNum, trackTotal int, cfg *Config, track *
 	for _, i := range streamMetaIndices {
 		streamUrl, err := getStreamMeta(track.TrackID, 0, i, streamParams)
 		if err != nil {
-			fmt.Println("failed to get track stream metadata")
+			GetLogger().Error("Failed to get track stream metadata", "error", err, "track_id", track.TrackID)
 			return err
 		} else if streamUrl == "" {
 			return errors.New("the api didn't return a track stream URL")
 		}
 		quality := queryQuality(streamUrl)
 		if quality == nil {
-			fmt.Println("The API returned an unsupported format, URL:", streamUrl)
+			GetLogger().Warn("API returned unsupported format", "url", streamUrl, "track_id", track.TrackID)
 			continue
 			//return errors.New("The API returned an unsupported format.")
 		}
@@ -956,7 +956,7 @@ func album(albumID string, cfg *Config, streamParams *StreamParams, artResp *Alb
 	} else {
 		_meta, err := getAlbumMeta(albumID)
 		if err != nil {
-			fmt.Println("Failed to get metadata.")
+			GetLogger().Error("Failed to get album metadata", "error", err, "album_id", albumID)
 			return err
 		}
 		meta = _meta.Response
@@ -1022,7 +1022,7 @@ func getAlbumTotal(meta []*ArtistMeta) int {
 func artist(artistId string, cfg *Config, streamParams *StreamParams) error {
 	meta, err := getArtistMeta(artistId)
 	if err != nil {
-		fmt.Println("Failed to get artist metadata.")
+		GetLogger().Error("Failed to get artist metadata", "error", err, "artist_id", artistId)
 		return err
 	}
 	if len(meta) == 0 {
@@ -1058,7 +1058,7 @@ func artist(artistId string, cfg *Config, streamParams *StreamParams) error {
 func playlist(plistId, legacyToken string, cfg *Config, streamParams *StreamParams, cat bool) error {
 	_meta, err := getPlistMeta(plistId, cfg.Email, legacyToken, cat)
 	if err != nil {
-		fmt.Println("Failed to get playlist metadata.")
+		GetLogger().Error("Failed to get playlist metadata", "error", err, "playlist_id", plistId)
 		return err
 	}
 	meta := _meta.Response
@@ -1477,7 +1477,7 @@ func video(videoID, uguID string, cfg *Config, streamParams *StreamParams, _meta
 	} else {
 		m, err := getAlbumMeta(videoID)
 		if err != nil {
-			fmt.Println("Failed to get metadata.")
+			GetLogger().Error("Failed to get video metadata", "error", err, "video_id", videoID)
 			return err
 		}
 		meta = m.Response
