@@ -49,7 +49,9 @@ func NewDownloader(apiClient *api.Client, cfg *config.Config) *Downloader {
 	}
 }
 
-// DownloadTrack downloads a single track
+// DownloadTrack downloads a single track without metadata tagging.
+// Note: This function does not support resume functionality.
+// Use DownloadTrackWithMetadata() for downloads that should support resuming.
 func (d *Downloader) DownloadTrack(trackPath, url string) error {
 	f, err := fsutil.OpenFile(trackPath, os.O_CREATE|os.O_WRONLY, 0)
 	if err != nil {
@@ -122,7 +124,10 @@ func (d *Downloader) DownloadVideo(videoPath, url string) error {
 	return err
 }
 
-// DownloadLstream downloads livestream segments with resume support
+// DownloadLstream downloads livestream segments with automatic resume support.
+// This function can resume interrupted livestream downloads by tracking segment progress
+// and restarting from the first incomplete segment. Resume state is automatically
+// cleaned up upon successful completion.
 func (d *Downloader) DownloadLstream(videoPath string, baseUrl string, segUrls []string) error {
 	// Check for existing segment progress
 	segments := d.loadSegmentState(videoPath)
@@ -903,7 +908,10 @@ func TagVideoFile(inputPath, outputPath, ffmpegNameStr string, metadata *models.
 	return nil
 }
 
-// DownloadTrackWithMetadata downloads a track and adds metadata with resume support
+// DownloadTrackWithMetadata downloads a track, adds metadata, and supports automatic resume.
+// This function can resume interrupted downloads by detecting existing partial files
+// and sending Range requests for remaining bytes. Resume state is automatically
+// managed and cleaned up upon successful completion.
 func (d *Downloader) DownloadTrackWithMetadata(trackPath, url string, metadata *models.TrackMetadata, ffmpegNameStr string) error {
 	// Check for existing resume state
 	resumeState, err := d.resumeManager.LoadState(trackPath)
