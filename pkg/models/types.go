@@ -3,11 +3,14 @@ package models
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/dustin/go-humanize"
 )
 
 // Quality represents audio/video quality information
@@ -25,6 +28,23 @@ type WriteCounter struct {
 	Downloaded int64
 	Percentage int
 	StartTime int64
+}
+
+// Write implements io.Writer interface for progress tracking
+func (wc *WriteCounter) Write(p []byte) (int, error) {
+	var speed int64 = 0
+	n := len(p)
+	wc.Downloaded += int64(n)
+	percentage := float64(wc.Downloaded) / float64(wc.Total) * float64(100)
+	wc.Percentage = int(percentage)
+	toDivideBy := time.Now().UnixMilli() - wc.StartTime
+	if toDivideBy != 0 {
+		speed = int64(wc.Downloaded) / toDivideBy * 1000
+	}
+	fmt.Printf("\r%d%% @ %s/s, %s/%s ", wc.Percentage,
+		humanize.Bytes(uint64(speed)),
+		humanize.Bytes(uint64(wc.Downloaded)), wc.TotalStr)
+	return n, nil
 }
 
 // AuthResponse represents authentication response

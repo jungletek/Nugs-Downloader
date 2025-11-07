@@ -7,13 +7,13 @@ import (
 	"runtime"
 	"strings"
 
-	"github.com/jungletek/Nugs-Downloader/pkg/api"
-	"github.com/jungletek/Nugs-Downloader/pkg/config"
-	"github.com/jungletek/Nugs-Downloader/pkg/downloader"
-	"github.com/jungletek/Nugs-Downloader/pkg/fsutil"
-	"github.com/jungletek/Nugs-Downloader/pkg/logger"
-	"github.com/jungletek/Nugs-Downloader/pkg/models"
-	"github.com/jungletek/Nugs-Downloader/pkg/processor"
+	"main/pkg/api"
+	"main/pkg/config"
+	"main/pkg/downloader"
+	"main/pkg/fsutil"
+	"main/pkg/logger"
+	"main/pkg/models"
+	"main/pkg/processor"
 )
 
 func main() {

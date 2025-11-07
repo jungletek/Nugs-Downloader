@@ -11,12 +11,12 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jungletek/Nugs-Downloader/pkg/api"
-	"github.com/jungletek/Nugs-Downloader/pkg/config"
-	"github.com/jungletek/Nugs-Downloader/pkg/downloader"
-	"github.com/jungletek/Nugs-Downloader/pkg/fsutil"
-	"github.com/jungletek/Nugs-Downloader/pkg/logger"
-	"github.com/jungletek/Nugs-Downloader/pkg/models"
+	"main/pkg/api"
+	"main/pkg/config"
+	"main/pkg/downloader"
+	"main/pkg/fsutil"
+	"main/pkg/logger"
+	"main/pkg/models"
 )
 
 const (
@@ -253,7 +253,7 @@ func (p *Processor) ProcessVideo(videoID, uguID string, streamParams *models.Str
 		return fmt.Errorf("the api didn't return a video manifest url")
 	}
 
-	variant, retRes, err := downloader.ChooseVariant(manifestUrl, p.config.WantRes)
+	variant, retRes, err := p.downloader.ChooseVariant(manifestUrl, p.config.WantRes)
 	if err != nil {
 		fmt.Println("Failed to get video master manifest.")
 		return err
@@ -274,13 +274,13 @@ func (p *Processor) ProcessVideo(videoID, uguID string, streamParams *models.Str
 		return nil
 	}
 
-	manBaseUrl, query, err := downloader.getManifestBase(manifestUrl)
+	manBaseUrl, query, err := p.downloader.GetManifestBase(manifestUrl)
 	if err != nil {
 		fmt.Println("Failed to get video manifest base URL.")
 		return err
 	}
 
-	segUrls, err := downloader.GetSegUrls(manBaseUrl+variant.URI, query)
+	segUrls, err := p.downloader.GetSegUrls(manBaseUrl+variant.URI, query)
 	if err != nil {
 		fmt.Println("Failed to get video segment URLs.")
 		return err
@@ -377,7 +377,7 @@ func (p *Processor) ProcessTrack(folPath string, trackNum, trackTotal int, track
 	if isHlsOnly {
 		fmt.Println("HLS-only track. Only AAC is available, tags currently unsupported.")
 		chosenQual = quals[0]
-		err := downloader.ParseHlsMaster(chosenQual)
+		err := p.downloader.ParseHlsMaster(chosenQual)
 		if err != nil {
 			return err
 		}

@@ -1,13 +1,8 @@
 package api
 
 import (
-	"crypto/aes"
-	"crypto/cipher"
-	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"net/http/cookiejar"
 	"net/url"
@@ -15,7 +10,7 @@ import (
 	"strings"
 
 	"github.com/grafov/m3u8"
-	"github.com/jungletek/Nugs-Downloader/pkg/logger"
+	"main/pkg/models"
 )
 
 const (
@@ -41,6 +36,11 @@ type Client struct{}
 // NewClient creates a new API client
 func NewClient() *Client {
 	return &Client{}
+}
+
+// GetHTTPClient returns the underlying HTTP client
+func (c *Client) GetHTTPClient() *http.Client {
+	return client
 }
 
 // Auth authenticates with the Nugs API
@@ -69,7 +69,7 @@ func (c *Client) Auth(email, pwd string) (string, error) {
 		return "", errors.New(do.Status)
 	}
 
-	var obj AuthResponse
+	var obj models.AuthResponse
 	err = json.NewDecoder(do.Body).Decode(&obj)
 	if err != nil {
 		return "", err
@@ -97,7 +97,7 @@ func (c *Client) GetUserInfo(token string) (string, error) {
 		return "", errors.New(do.Status)
 	}
 
-	var obj UserInfo
+	var obj models.UserInfo
 	err = json.NewDecoder(do.Body).Decode(&obj)
 	if err != nil {
 		return "", err
@@ -107,7 +107,7 @@ func (c *Client) GetUserInfo(token string) (string, error) {
 }
 
 // GetSubInfo retrieves subscription information
-func (c *Client) GetSubInfo(token string) (*SubInfo, error) {
+func (c *Client) GetSubInfo(token string) (*models.SubInfo, error) {
 	req, err := http.NewRequest(http.MethodGet, subInfoUrl, nil)
 	if err != nil {
 		return nil, err
@@ -125,7 +125,7 @@ func (c *Client) GetSubInfo(token string) (*SubInfo, error) {
 		return nil, errors.New(do.Status)
 	}
 
-	var obj SubInfo
+	var obj models.SubInfo
 	err = json.NewDecoder(do.Body).Decode(&obj)
 	if err != nil {
 		return nil, err
@@ -135,7 +135,7 @@ func (c *Client) GetSubInfo(token string) (*SubInfo, error) {
 }
 
 // GetAlbumMeta retrieves album metadata
-func (c *Client) GetAlbumMeta(albumId string) (*AlbumMeta, error) {
+func (c *Client) GetAlbumMeta(albumId string) (*models.AlbumMeta, error) {
 	req, err := http.NewRequest(http.MethodGet, streamApiBase+"api.aspx", nil)
 	if err != nil {
 		return nil, err
@@ -158,7 +158,7 @@ func (c *Client) GetAlbumMeta(albumId string) (*AlbumMeta, error) {
 		return nil, errors.New(do.Status)
 	}
 
-	var obj AlbumMeta
+	var obj models.AlbumMeta
 	err = json.NewDecoder(do.Body).Decode(&obj)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func (c *Client) GetAlbumMeta(albumId string) (*AlbumMeta, error) {
 }
 
 // GetPlistMeta retrieves playlist metadata
-func (c *Client) GetPlistMeta(plistId, email, legacyToken string, cat bool) (*PlistMeta, error) {
+func (c *Client) GetPlistMeta(plistId, email, legacyToken string, cat bool) (*models.PlistMeta, error) {
 	var path string
 	if cat {
 		path = "api.aspx"
@@ -205,7 +205,7 @@ func (c *Client) GetPlistMeta(plistId, email, legacyToken string, cat bool) (*Pl
 		return nil, errors.New(do.Status)
 	}
 
-	var obj PlistMeta
+	var obj models.PlistMeta
 	err = json.NewDecoder(do.Body).Decode(&obj)
 	if err != nil {
 		return nil, err
@@ -215,8 +215,8 @@ func (c *Client) GetPlistMeta(plistId, email, legacyToken string, cat bool) (*Pl
 }
 
 // GetArtistMeta retrieves artist metadata
-func (c *Client) GetArtistMeta(artistId string) ([]*ArtistMeta, error) {
-	var allArtistMeta []*ArtistMeta
+func (c *Client) GetArtistMeta(artistId string) ([]*models.ArtistMeta, error) {
+	var allArtistMeta []*models.ArtistMeta
 	offset := 1
 
 	query := url.Values{}
@@ -245,7 +245,7 @@ func (c *Client) GetArtistMeta(artistId string) ([]*ArtistMeta, error) {
 			return nil, errors.New(do.Status)
 		}
 
-		var obj ArtistMeta
+		var obj models.ArtistMeta
 		err = json.NewDecoder(do.Body).Decode(&obj)
 		do.Body.Close()
 		if err != nil {
@@ -264,7 +264,7 @@ func (c *Client) GetArtistMeta(artistId string) ([]*ArtistMeta, error) {
 }
 
 // GetStreamMeta retrieves stream metadata
-func (c *Client) GetStreamMeta(trackId, skuId, format int, streamParams *StreamParams) (string, error) {
+func (c *Client) GetStreamMeta(trackId, skuId, format int, streamParams *models.StreamParams) (string, error) {
 	req, err := http.NewRequest(http.MethodGet, streamApiBase+"bigriver/subPlayer.aspx", nil)
 	if err != nil {
 		return "", err
@@ -298,7 +298,7 @@ func (c *Client) GetStreamMeta(trackId, skuId, format int, streamParams *StreamP
 		return "", errors.New(do.Status)
 	}
 
-	var obj StreamMeta
+	var obj models.StreamMeta
 	err = json.NewDecoder(do.Body).Decode(&obj)
 	if err != nil {
 		return "", err
@@ -333,7 +333,7 @@ func (c *Client) GetPurchasedManUrl(skuID int, showID, userID, uguID string) (st
 		return "", errors.New(do.Status)
 	}
 
-	var obj PurchasedManResp
+	var obj models.PurchasedManResp
 	err = json.NewDecoder(do.Body).Decode(&obj)
 	if err != nil {
 		return "", err

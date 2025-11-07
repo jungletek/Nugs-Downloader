@@ -20,11 +20,10 @@ import (
 
 	"github.com/dustin/go-humanize"
 	"github.com/grafov/m3u8"
-	"github.com/jungletek/Nugs-Downloader/pkg/api"
-	"github.com/jungletek/Nugs-Downloader/pkg/config"
-	"github.com/jungletek/Nugs-Downloader/pkg/fsutil"
-	"github.com/jungletek/Nugs-Downloader/pkg/logger"
-	"github.com/jungletek/Nugs-Downloader/pkg/models"
+	"main/pkg/api"
+	"main/pkg/config"
+	"main/pkg/fsutil"
+	"main/pkg/models"
 )
 
 // Downloader handles downloading and processing of media content
@@ -41,22 +40,7 @@ func NewDownloader(apiClient *api.Client, cfg *config.Config) *Downloader {
 	}
 }
 
-// Write implements io.Writer interface for progress tracking
-func (wc *models.WriteCounter) Write(p []byte) (int, error) {
-	var speed int64 = 0
-	n := len(p)
-	wc.Downloaded += int64(n)
-	percentage := float64(wc.Downloaded) / float64(wc.Total) * float64(100)
-	wc.Percentage = int(percentage)
-	toDivideBy := time.Now().UnixMilli() - wc.StartTime
-	if toDivideBy != 0 {
-		speed = int64(wc.Downloaded) / toDivideBy * 1000
-	}
-	fmt.Printf("\r%d%% @ %s/s, %s/%s ", wc.Percentage,
-		humanize.Bytes(uint64(speed)),
-		humanize.Bytes(uint64(wc.Downloaded)), wc.TotalStr)
-	return n, nil
-}
+
 
 // DownloadTrack downloads a single track
 func (d *Downloader) DownloadTrack(trackPath, url string) error {
@@ -103,7 +87,8 @@ func (d *Downloader) DownloadVideo(videoPath, url string) error {
 		return err
 	}
 	req.Header.Add("Range", fmt.Sprintf("bytes=%d-", startByte))
-	do, err := d.apiClient.Client.Do(req)
+	httpClient := d.apiClient.GetHTTPClient()
+	do, err := httpClient.Do(req)
 	if err != nil {
 		return err
 	}
@@ -147,7 +132,8 @@ func (d *Downloader) DownloadLstream(videoPath string, baseUrl string, segUrls [
 		if err != nil {
 			return err
 		}
-		do, err := d.apiClient.Client.Do(req)
+		httpClient := d.apiClient.GetHTTPClient()
+		do, err := httpClient.Do(req)
 		if err != nil {
 			return err
 		}
@@ -199,7 +185,7 @@ func CheckIfHlsOnly(quals []*models.Quality) bool {
 }
 
 // ParseHlsMaster parses HLS master playlist
-func ParseHlsMaster(qual *models.Quality) error {
+func (d *Downloader) ParseHlsMaster(qual *models.Quality) error {
 	master, err := d.apiClient.GetM3U8Playlist(qual.URL)
 	if err != nil {
 		return err
@@ -216,7 +202,7 @@ func ParseHlsMaster(qual *models.Quality) error {
 	}
 
 	qual.Specs = bitrate + " Kbps AAC"
-	manBase, q, err := getManifestBase(qual.URL)
+	manBase, q, err := d.GetManifestBase(qual.URL)
 	if err != nil {
 		return err
 	}
@@ -225,7 +211,7 @@ func ParseHlsMaster(qual *models.Quality) error {
 }
 
 // GetManifestBase extracts base URL from manifest URL
-func getManifestBase(manifestUrl string) (string, string, error) {
+func (d *Downloader) GetManifestBase(manifestUrl string) (string, string, error) {
 	u, err := url.Parse(manifestUrl)
 	if err != nil {
 		return "", "", err
@@ -237,7 +223,7 @@ func getManifestBase(manifestUrl string) (string, string, error) {
 }
 
 // GetSegUrls extracts segment URLs from media playlist
-func GetSegUrls(manifestUrl, query string) ([]string, error) {
+func (d *Downloader) GetSegUrls(manifestUrl, query string) ([]string, error) {
 	var segUrls []string
 	media, err := d.apiClient.GetMediaPlaylist(manifestUrl)
 	if err != nil {
@@ -254,7 +240,7 @@ func GetSegUrls(manifestUrl, query string) ([]string, error) {
 }
 
 // ChooseVariant selects the best video variant
-func ChooseVariant(manifestUrl, wantRes string) (*m3u8.Variant, string, error) {
+func (d *Downloader) ChooseVariant(manifestUrl, wantRes string) (*m3u8.Variant, string, error) {
 	origWantRes := wantRes
 	var wantVariant *m3u8.Variant
 
@@ -325,8 +311,9 @@ func extractBitrate(manUrl string) string {
 }
 
 // GetKey retrieves encryption key
-func GetKey(keyUrl string) ([]byte, error) {
-	resp, err := d.apiClient.Client.Get(keyUrl)
+func GetKey(keyUrl string, apiClient *api.Client) ([]byte, error) {
+	httpClient := apiClient.GetHTTPClient()
+	resp, err := httpClient.Get(keyUrl)
 	if err != nil {
 		return nil, err
 	}
@@ -389,7 +376,7 @@ func (d *Downloader) HlsOnly(trackPath, manUrl, ffmpegNameStr string) error {
 	tsUrl := media.Segments[0].URI
 	key := media.Key
 
-	keyBytes, err := GetKey(key.URI)
+	keyBytes, err := GetKey(key.URI, d.apiClient)
 	if err != nil {
 		return err
 	}

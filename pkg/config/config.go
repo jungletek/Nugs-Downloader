@@ -8,8 +8,27 @@ import (
 	"strings"
 
 	"github.com/alexflint/go-arg"
-	"github.com/jungletek/Nugs-Downloader/pkg/fsutil"
-	"github.com/jungletek/Nugs-Downloader/pkg/logger"
+	"main/pkg/fsutil"
+	"main/pkg/logger"
+)
+
+const (
+	// Quality format ranges
+	MinAudioFormat = 1
+	MaxAudioFormat = 5
+	MinVideoFormat = 1
+	MaxVideoFormat = 5
+)
+
+var (
+	// Resolution mappings for video formats
+	resolveRes = map[int]string{
+		1: "480",
+		2: "720",
+		3: "1080",
+		4: "1440",
+		5: "2160",
+	}
 )
 
 // Config represents the application configuration
