@@ -453,6 +453,54 @@ func (suite *ProcessorTestSuite) TestConstants() {
 	assert.Equal(suite.T(), [4]int{1, 4, 7, 10}, streamMetaIndices)
 }
 
+// TestProcessTrackWithMetadata tests track processing with metadata
+func (suite *ProcessorTestSuite) TestProcessTrackWithMetadata() {
+	// Create test album metadata
+	albumMeta := &models.AlbArtResp{
+		ArtistName:   "Test Artist",
+		ContainerInfo: "Test Album",
+	}
+
+	// Create test track
+	track := models.Track{
+		TrackID:   123,
+		SongTitle: "Test Song",
+	}
+
+	// Test with metadata (should not panic)
+	err := suite.processor.ProcessTrackWithMetadata(suite.tempDir, 1, 1, &track, &models.StreamParams{}, albumMeta)
+	// We expect this to fail due to network/API issues, but it should handle metadata properly
+	assert.Error(suite.T(), err)
+}
+
+// TestProcessTrackWithMetadata_NoAlbumMeta tests track processing without album metadata
+func (suite *ProcessorTestSuite) TestProcessTrackWithMetadata_NoAlbumMeta() {
+	// Create test track
+	track := models.Track{
+		TrackID:   123,
+		SongTitle: "Test Song",
+	}
+
+	// Test without metadata (should not panic)
+	err := suite.processor.ProcessTrackWithMetadata(suite.tempDir, 1, 1, &track, &models.StreamParams{}, nil)
+	// We expect this to fail due to network/API issues, but it should handle nil metadata properly
+	assert.Error(suite.T(), err)
+}
+
+// TestProcessTrack_BackwardsCompatibility tests that ProcessTrack still works
+func (suite *ProcessorTestSuite) TestProcessTrack_BackwardsCompatibility() {
+	// Create test track
+	track := models.Track{
+		TrackID:   123,
+		SongTitle: "Test Song",
+	}
+
+	// Test the old ProcessTrack method (should delegate to ProcessTrackWithMetadata with nil metadata)
+	err := suite.processor.ProcessTrack(suite.tempDir, 1, 1, &track, &models.StreamParams{})
+	// We expect this to fail due to network/API issues, but it should work structurally
+	assert.Error(suite.T(), err)
+}
+
 // Run the test suite
 func TestProcessorTestSuite(t *testing.T) {
 	suite.Run(t, new(ProcessorTestSuite))

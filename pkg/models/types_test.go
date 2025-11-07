@@ -304,6 +304,34 @@ func (suite *ModelsTestSuite) TestUserInfo_JSON() {
 	assert.Equal(suite.T(), user.Sub, decoded.Sub)
 }
 
+// TestTrackMetadata tests TrackMetadata struct
+func (suite *ModelsTestSuite) TestTrackMetadata() {
+	metadata := TrackMetadata{
+		Title:    "Test Song",
+		Artist:   "Test Artist",
+		Album:    "Test Album",
+		TrackNum: 5,
+		Year:     "2024",
+	}
+
+	assert.Equal(suite.T(), "Test Song", metadata.Title)
+	assert.Equal(suite.T(), "Test Artist", metadata.Artist)
+	assert.Equal(suite.T(), "Test Album", metadata.Album)
+	assert.Equal(suite.T(), 5, metadata.TrackNum)
+	assert.Equal(suite.T(), "2024", metadata.Year)
+}
+
+// TestTrackMetadata_Empty tests TrackMetadata with empty fields
+func (suite *ModelsTestSuite) TestTrackMetadata_Empty() {
+	metadata := TrackMetadata{}
+
+	assert.Equal(suite.T(), "", metadata.Title)
+	assert.Equal(suite.T(), "", metadata.Artist)
+	assert.Equal(suite.T(), "", metadata.Album)
+	assert.Equal(suite.T(), 0, metadata.TrackNum)
+	assert.Equal(suite.T(), "", metadata.Year)
+}
+
 // Run the test suite
 func TestModelsTestSuite(t *testing.T) {
 	suite.Run(t, new(ModelsTestSuite))
