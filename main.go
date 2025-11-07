@@ -975,7 +975,14 @@ func album(albumID string, cfg *Config, streamParams *StreamParams, artResp *Alb
 		err := processTrack(
 			albumPath, trackNum, trackTotal, cfg, &track, streamParams)
 		if err != nil {
-			handleErr("Track failed.", err, false)
+			context := map[string]interface{}{
+				"album":     meta.ArtistName + " - " + meta.ContainerInfo,
+				"track":     track.SongTitle,
+				"track_num": trackNum,
+				"total":     trackTotal,
+			}
+			WrapError(err, context)
+			GetLogger().Error("Track download failed", "track", track.SongTitle, "album", meta.ContainerInfo)
 		}
 	}
 	return nil
@@ -1011,7 +1018,14 @@ func artist(artistId string, cfg *Config, streamParams *StreamParams) error {
 				err = album(strconv.Itoa(container.ContainerID), cfg, streamParams, nil)
 			}
 			if err != nil {
-				handleErr("Item failed.", err, false)
+				context := map[string]interface{}{
+					"item_type": "artist",
+					"artist_id": artistId,
+					"item_num":  albumNum + 1,
+					"total":     albumTotal,
+				}
+				WrapError(err, context)
+				GetLogger().Error("Artist item failed", "item", albumNum+1, "total", albumTotal)
 			}
 		}
 	}
