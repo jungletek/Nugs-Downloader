@@ -122,42 +122,172 @@ func (d *Downloader) DownloadVideo(videoPath, url string) error {
 	return err
 }
 
-// DownloadLstream downloads livestream segments
+// DownloadLstream downloads livestream segments with resume support
 func (d *Downloader) DownloadLstream(videoPath string, baseUrl string, segUrls []string) error {
-	f, err := fsutil.OpenFile(videoPath, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0)
+	// Check for existing segment progress
+	segments := d.loadSegmentState(videoPath)
+
+	// If no existing state, create initial segment tracking
+	if segments == nil {
+		segments = d.createInitialSegmentState(videoPath, segUrls)
+	}
+
+	// Find first incomplete segment
+	startIdx := d.findFirstIncompleteSegment(segments)
+	if startIdx >= len(segUrls) {
+		// All segments already downloaded
+		fmt.Println("All segments already downloaded, skipping...")
+		return nil
+	}
+
+	// Resume download from first incomplete segment
+	return d.downloadSegmentsFromIndex(videoPath, baseUrl, segUrls, startIdx, segments)
+}
+
+// loadSegmentState loads existing segment download state
+func (d *Downloader) loadSegmentState(videoPath string) []SegmentState {
+	resumeState, err := d.resumeManager.LoadState(videoPath)
+	if err != nil || resumeState == nil {
+		return nil
+	}
+
+	// Validate that segments exist and are properly structured
+	if len(resumeState.Segments) == 0 {
+		return nil
+	}
+
+	return resumeState.Segments
+}
+
+// createInitialSegmentState creates initial segment tracking for a new download
+func (d *Downloader) createInitialSegmentState(videoPath string, segUrls []string) []SegmentState {
+	segments := make([]SegmentState, len(segUrls))
+	for i := range segments {
+		segments[i] = SegmentState{
+			Index:     i,
+			URL:       segUrls[i],
+			Size:      0,
+			Checksum:  "",
+			Completed: false,
+		}
+	}
+	return segments
+}
+
+// findFirstIncompleteSegment finds the index of the first incomplete segment
+func (d *Downloader) findFirstIncompleteSegment(segments []SegmentState) int {
+	for i, segment := range segments {
+		if !segment.Completed {
+			return i
+		}
+	}
+	return len(segments) // All segments complete
+}
+
+// downloadSegmentsFromIndex downloads segments starting from the specified index
+func (d *Downloader) downloadSegmentsFromIndex(videoPath, baseUrl string, segUrls []string, startIdx int, segments []SegmentState) error {
+	f, err := os.OpenFile(videoPath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
-		return err
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot open video file", "Check write permissions", false, err)
 	}
 	defer f.Close()
 
+	// Seek to end of file for appending
+	stat, err := f.Stat()
+	if err != nil {
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot stat video file", "Check file permissions", false, err)
+	}
+	_, err = f.Seek(stat.Size(), 0)
+	if err != nil {
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot seek in video file", "File may be corrupted", false, err)
+	}
+
 	segTotal := len(segUrls)
-	for segNum, segUrl := range segUrls {
-		segNum++
+	downloadedSegments := 0
+
+	for segIdx := startIdx; segIdx < segTotal; segIdx++ {
+		segNum := segIdx + 1
 		fmt.Printf("\rSegment %d of %d.", segNum, segTotal)
 
-		req, err := http.NewRequest(http.MethodGet, baseUrl+segUrl, nil)
+		segment := &segments[segIdx]
+
+		// Download segment
+		req, err := http.NewRequest(http.MethodGet, baseUrl+segUrls[segIdx], nil)
 		if err != nil {
-			return err
+			return models.NewDownloadError(models.ErrNetwork, "Failed to create segment request", "Check network connection", true, err)
 		}
+
 		httpClient := d.apiClient.GetHTTPClient()
-		do, err := httpClient.Do(req)
+		resp, err := httpClient.Do(req)
 		if err != nil {
-			return err
+			return models.NewDownloadError(models.ErrNetwork, "Failed to download segment", "Check network connection", true, err)
 		}
 
-		if do.StatusCode != http.StatusOK {
-			do.Body.Close()
-			return errors.New(do.Status)
+		if resp.StatusCode != http.StatusOK {
+			resp.Body.Close()
+			return models.NewDownloadError(models.ErrNetwork, fmt.Sprintf("Segment download failed: %s", resp.Status), "Server may be temporarily unavailable", true, nil)
 		}
 
-		_, err = io.Copy(f, do.Body)
-		do.Body.Close()
+		// Read segment data
+		segmentData, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
 		if err != nil {
-			return err
+			return models.NewDownloadError(models.ErrNetwork, "Failed to read segment data", "Check network connection", true, err)
+		}
+
+		// Write segment to file
+		_, err = f.Write(segmentData)
+		if err != nil {
+			return models.NewDownloadError(models.ErrFileSystem, "Failed to write segment to file", "Check disk space and permissions", false, err)
+		}
+
+		// Update segment state
+		segment.Size = int64(len(segmentData))
+		segment.Checksum = CalculateChecksumFromBytes(segmentData)
+		segment.Completed = true
+
+		downloadedSegments++
+
+		// Save progress every 10 segments or on last segment
+		if downloadedSegments%10 == 0 || segIdx == segTotal-1 {
+			if err := d.saveSegmentState(videoPath, segments); err != nil {
+				fmt.Printf("\nWarning: failed to save segment progress: %v\n", err)
+			}
 		}
 	}
+
 	fmt.Println("")
+
+	// Clean up segment state on successful completion
+	d.resumeManager.DeleteState(videoPath)
+
 	return nil
+}
+
+// saveSegmentState saves the current segment download state
+func (d *Downloader) saveSegmentState(videoPath string, segments []SegmentState) error {
+	resumeState := &ResumeState{
+		FilePath:       videoPath,
+		URL:            "", // Not applicable for segmented downloads
+		TotalSize:      0,  // Will be calculated from segments
+		DownloadedSize: 0,  // Will be calculated from segments
+		LastModified:   time.Now(),
+		ETag:           "",
+		Checksum:       "",
+		Segments:       segments,
+		CreatedAt:      time.Now(),
+		UpdatedAt:      time.Now(),
+	}
+
+	// Calculate totals from segments
+	for _, segment := range segments {
+		if segment.Completed {
+			resumeState.DownloadedSize += segment.Size
+		}
+		resumeState.TotalSize += segment.Size
+	}
+
+	return d.resumeManager.SaveState(resumeState)
 }
 
 // QueryQuality determines quality from stream URL
@@ -894,7 +1024,7 @@ func (d *Downloader) downloadTrackFresh(trackPath, url string, metadata *models.
 	return nil
 }
 
-// resumeTrackDownload resumes a partial track download
+// resumeTrackDownload resumes a partial track download with enhanced error handling
 func (d *Downloader) resumeTrackDownload(trackPath, url string, resumeState *ResumeState, metadata *models.TrackMetadata, ffmpegNameStr string) error {
 	tempPath := trackPath + ".tmp"
 
@@ -916,6 +1046,18 @@ func (d *Downloader) resumeTrackDownload(trackPath, url string, resumeState *Res
 		return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
 	}
 
+	// Check for file corruption using checksum if available
+	if resumeState.Checksum != "" {
+		if calculatedChecksum, err := CalculateChecksum(tempPath); err == nil {
+			if calculatedChecksum != resumeState.Checksum {
+				fmt.Println("Partial file checksum mismatch, starting fresh download...")
+				os.Remove(tempPath)
+				d.resumeManager.DeleteState(trackPath)
+				return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
+			}
+		}
+	}
+
 	// Open temp file for appending
 	f, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
@@ -923,9 +1065,23 @@ func (d *Downloader) resumeTrackDownload(trackPath, url string, resumeState *Res
 	}
 	defer f.Close()
 
-	// Send Range request for remaining bytes
-	resp, err := SendRangeRequest(d.apiClient.GetHTTPClient(), url, resumeState.DownloadedSize, nil)
+	// Send Range request for remaining bytes with timeout and ETag validation
+	headers := make(map[string]string)
+	if resumeState.ETag != "" {
+		headers["If-Match"] = resumeState.ETag
+	}
+
+	resp, err := SendRangeRequest(d.apiClient.GetHTTPClient(), url, resumeState.DownloadedSize, headers)
 	if err != nil {
+		// Check if it's an ETag mismatch (file changed on server)
+		if strings.Contains(err.Error(), "412") || strings.Contains(err.Error(), "Precondition Failed") {
+			fmt.Println("Remote file has changed (ETag mismatch), starting fresh download...")
+			f.Close()
+			os.Remove(tempPath)
+			d.resumeManager.DeleteState(trackPath)
+			return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
+		}
+
 		// Range requests not supported, start fresh
 		fmt.Printf("Server doesn't support range requests (%v), starting fresh download...\n", err)
 		f.Close()
@@ -935,6 +1091,17 @@ func (d *Downloader) resumeTrackDownload(trackPath, url string, resumeState *Res
 	}
 	defer resp.Body.Close()
 
+	// Validate response headers for file changes
+	if resp.Header.Get("ETag") != "" && resumeState.ETag != "" {
+		if resp.Header.Get("ETag") != resumeState.ETag {
+			fmt.Println("Remote file has changed (ETag mismatch), starting fresh download...")
+			f.Close()
+			os.Remove(tempPath)
+			d.resumeManager.DeleteState(trackPath)
+			return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
+		}
+	}
+
 	counter := &models.WriteCounter{
 		Total:      resumeState.TotalSize,
 		TotalStr:   humanize.Bytes(uint64(resumeState.TotalSize)),
@@ -942,13 +1109,25 @@ func (d *Downloader) resumeTrackDownload(trackPath, url string, resumeState *Res
 		Downloaded: resumeState.DownloadedSize,
 	}
 
-	// Download remaining bytes with progress tracking
+	// Download remaining bytes with progress tracking and disk space monitoring
 	buf := make([]byte, 32*1024) // 32KB buffer
 	totalDownloaded := resumeState.DownloadedSize
+	lastDiskCheck := time.Now()
 
 	for {
 		n, readErr := resp.Body.Read(buf)
 		if n > 0 {
+			// Check disk space periodically (every 5 seconds)
+			if time.Since(lastDiskCheck) > 5*time.Second {
+				if err := CheckDiskSpace(trackPath, resumeState.TotalSize-totalDownloaded); err != nil {
+					f.Close()
+					os.Remove(tempPath)
+					d.resumeManager.DeleteState(trackPath)
+					return err
+				}
+				lastDiskCheck = time.Now()
+			}
+
 			_, writeErr := f.Write(buf[:n])
 			if writeErr != nil {
 				f.Close()
@@ -973,6 +1152,17 @@ func (d *Downloader) resumeTrackDownload(trackPath, url string, resumeState *Res
 			if readErr == io.EOF {
 				break
 			}
+
+			// Handle specific network errors
+			if netErr, ok := readErr.(net.Error); ok {
+				if netErr.Timeout() {
+					return models.NewDownloadError(models.ErrTimeout, "Resume download timeout", "Check your internet connection and try again", true, readErr)
+				}
+				if netErr.Temporary() {
+					return models.NewDownloadError(models.ErrNetwork, "Temporary network error during resume", "Check your internet connection", true, readErr)
+				}
+			}
+
 			f.Close()
 			os.Remove(tempPath)
 			d.resumeManager.DeleteState(trackPath)

@@ -178,7 +178,13 @@ func SendRangeRequest(client *http.Client, url string, startByte int64, headers 
 		req.Header.Set(key, value)
 	}
 
-	resp, err := client.Do(req)
+	// Set a reasonable timeout for range requests (30 seconds)
+	clientWithTimeout := *client
+	if clientWithTimeout.Timeout == 0 {
+		clientWithTimeout.Timeout = 30 * time.Second
+	}
+
+	resp, err := clientWithTimeout.Do(req)
 	if err != nil {
 		return nil, err
 	}
@@ -186,7 +192,22 @@ func SendRangeRequest(client *http.Client, url string, startByte int64, headers 
 	// Check if server supports range requests
 	if resp.StatusCode != http.StatusPartialContent && resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("server returned status %d (range requests may not be supported)", resp.StatusCode)
+
+		// Provide specific error messages for common status codes
+		switch resp.StatusCode {
+		case http.StatusRequestedRangeNotSatisfiable:
+			return nil, fmt.Errorf("server returned 416 (range not satisfiable) - file may have changed")
+		case http.StatusPreconditionFailed:
+			return nil, fmt.Errorf("server returned 412 (precondition failed) - ETag mismatch")
+		case http.StatusNotFound:
+			return nil, fmt.Errorf("server returned 404 (not found) - file no longer exists")
+		case http.StatusForbidden:
+			return nil, fmt.Errorf("server returned 403 (forbidden) - access denied")
+		case http.StatusTooManyRequests:
+			return nil, fmt.Errorf("server returned 429 (too many requests) - rate limited")
+		default:
+			return nil, fmt.Errorf("server returned status %d (range requests may not be supported)", resp.StatusCode)
+		}
 	}
 
 	return resp, nil
@@ -206,6 +227,12 @@ func CalculateChecksum(filePath string) (string, error) {
 	}
 
 	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// CalculateChecksumFromBytes calculates MD5 checksum of byte data
+func CalculateChecksumFromBytes(data []byte) string {
+	hash := md5.Sum(data)
+	return hex.EncodeToString(hash[:])
 }
 
 // CleanupOldStates removes resume state files older than the specified duration
