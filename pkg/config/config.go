@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
-	"runtime"
 	"strings"
 
 	"github.com/alexflint/go-arg"
@@ -96,8 +95,8 @@ func ParseCfg() (*Config, error) {
 		cfg.Token = strings.TrimPrefix(cfg.Token, "Bearer ")
 	}
 
-	// Set ffmpeg path based on platform
-	if cfg.UseFfmpegEnvVar || runtime.GOOS == "windows" {
+	// Use correct syntax based on cfg.UseFfmpegEnvVar value
+	if cfg.UseFfmpegEnvVar {
 		cfg.FfmpegNameStr = "ffmpeg"
 	} else {
 		cfg.FfmpegNameStr = "./ffmpeg"
