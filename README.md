@@ -4,6 +4,10 @@ Nugs downloader written in Go.
 ![](https://i.imgur.com/BEudufy.png)
 [Windows, Linux, macOS, and Android binaries](https://github.com/Sorrow446/Nugs-Downloader/releases)
 
+[![CI](https://github.com/Sorrow446/Nugs-Downloader/actions/workflows/ci.yml/badge.svg)](https://github.com/Sorrow446/Nugs-Downloader/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/Sorrow446/Nugs-Downloader/branch/main/graph/badge.svg)](https://codecov.io/gh/Sorrow446/Nugs-Downloader)
+[![Go Report Card](https://goreportcard.com/badge/github.com/Sorrow446/Nugs-Downloader)](https://goreportcard.com/report/github.com/Sorrow446/Nugs-Downloader)
+
 # Setup
 Input credentials into config file.
 Configure any other options if needed.
@@ -86,7 +90,67 @@ Options:
   --help, -h             display this help and exit
   ```
  
+# Testing
+
+This project includes comprehensive unit and integration tests to ensure code quality and reliability.
+
+## Running Tests
+
+```bash
+# Run all tests
+make test
+
+# Run tests with verbose output
+make test-verbose
+
+# Run tests with coverage report
+make test-coverage
+
+# Run tests with race detection
+make test-race
+```
+
+## Test Coverage
+
+The test suite covers all major components:
+
+- **pkg/models**: Data structures and utility functions
+- **pkg/api**: HTTP client and API interactions (with mocking)
+- **pkg/config**: Configuration parsing and validation
+- **pkg/logger**: Structured logging functionality
+- **pkg/fsutil**: File system operations
+- **pkg/downloader**: Core download logic for audio/video content
+- **pkg/processor**: High-level content processing orchestration
+
+## CI/CD
+
+The project uses GitHub Actions for continuous integration:
+
+- Automated testing on multiple Go versions (1.21.x, 1.22.x)
+- Race condition detection
+- Code coverage reporting via Codecov
+- Build verification across platforms
+
+## Development
+
+```bash
+# Install dependencies
+make deps
+
+# Run linter (requires golangci-lint)
+make lint
+
+# Build for current platform
+make build
+
+# Build for all platforms
+make build-all
+
+# Clean build artifacts
+make clean
+```
+
 # Disclaimer
-- I will not be responsible for how you use Nugs Downloader.    
-- Nugs brand and name is the registered trademark of its respective owner.    
+- I will not be responsible for how you use Nugs Downloader.
+- Nugs brand and name is the registered trademark of its respective owner.
 - Nugs Downloader has no partnership, sponsorship or endorsement with Nugs.

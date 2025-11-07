@@ -31,7 +31,12 @@ var (
 )
 
 // Client represents the API client
-type Client struct{}
+type Client struct {
+	BaseAuthURL     string
+	BaseUserInfoURL string
+	BaseSubInfoURL  string
+	BaseStreamURL   string
+}
 
 // NewClient creates a new API client
 func NewClient() *Client {
@@ -52,7 +57,12 @@ func (c *Client) Auth(email, pwd string) (string, error) {
 	data.Set("username", email)
 	data.Set("password", pwd)
 
-	req, err := http.NewRequest(http.MethodPost, authUrl, strings.NewReader(data.Encode()))
+	authURL := authUrl
+	if c.BaseAuthURL != "" {
+		authURL = c.BaseAuthURL
+	}
+
+	req, err := http.NewRequest(http.MethodPost, authURL, strings.NewReader(data.Encode()))
 	if err != nil {
 		return "", err
 	}
@@ -80,7 +90,12 @@ func (c *Client) Auth(email, pwd string) (string, error) {
 
 // GetUserInfo retrieves user information
 func (c *Client) GetUserInfo(token string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, userInfoUrl, nil)
+	userInfoURL := userInfoUrl
+	if c.BaseUserInfoURL != "" {
+		userInfoURL = c.BaseUserInfoURL
+	}
+
+	req, err := http.NewRequest(http.MethodGet, userInfoURL, nil)
 	if err != nil {
 		return "", err
 	}
@@ -108,7 +123,12 @@ func (c *Client) GetUserInfo(token string) (string, error) {
 
 // GetSubInfo retrieves subscription information
 func (c *Client) GetSubInfo(token string) (*models.SubInfo, error) {
-	req, err := http.NewRequest(http.MethodGet, subInfoUrl, nil)
+	subInfoURL := subInfoUrl
+	if c.BaseSubInfoURL != "" {
+		subInfoURL = c.BaseSubInfoURL
+	}
+
+	req, err := http.NewRequest(http.MethodGet, subInfoURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -136,7 +156,12 @@ func (c *Client) GetSubInfo(token string) (*models.SubInfo, error) {
 
 // GetAlbumMeta retrieves album metadata
 func (c *Client) GetAlbumMeta(albumId string) (*models.AlbumMeta, error) {
-	req, err := http.NewRequest(http.MethodGet, streamApiBase+"api.aspx", nil)
+	streamURL := streamApiBase
+	if c.BaseStreamURL != "" {
+		streamURL = c.BaseStreamURL
+	}
+
+	req, err := http.NewRequest(http.MethodGet, streamURL+"api.aspx", nil)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +201,12 @@ func (c *Client) GetPlistMeta(plistId, email, legacyToken string, cat bool) (*mo
 		path = "secureApi.aspx"
 	}
 
-	req, err := http.NewRequest(http.MethodGet, streamApiBase+path, nil)
+	streamURL := streamApiBase
+	if c.BaseStreamURL != "" {
+		streamURL = c.BaseStreamURL
+	}
+
+	req, err := http.NewRequest(http.MethodGet, streamURL+path, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -219,6 +249,11 @@ func (c *Client) GetArtistMeta(artistId string) ([]*models.ArtistMeta, error) {
 	var allArtistMeta []*models.ArtistMeta
 	offset := 1
 
+	streamURL := streamApiBase
+	if c.BaseStreamURL != "" {
+		streamURL = c.BaseStreamURL
+	}
+
 	query := url.Values{}
 	query.Set("method", "catalog.containersAll")
 	query.Set("limit", "100")
@@ -227,7 +262,7 @@ func (c *Client) GetArtistMeta(artistId string) ([]*models.ArtistMeta, error) {
 	query.Set("vdisp", "1")
 
 	for {
-		req, err := http.NewRequest(http.MethodGet, streamApiBase+"api.aspx", nil)
+		req, err := http.NewRequest(http.MethodGet, streamURL+"api.aspx", nil)
 		if err != nil {
 			return nil, err
 		}
@@ -265,7 +300,12 @@ func (c *Client) GetArtistMeta(artistId string) ([]*models.ArtistMeta, error) {
 
 // GetStreamMeta retrieves stream metadata
 func (c *Client) GetStreamMeta(trackId, skuId, format int, streamParams *models.StreamParams) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, streamApiBase+"bigriver/subPlayer.aspx", nil)
+	streamURL := streamApiBase
+	if c.BaseStreamURL != "" {
+		streamURL = c.BaseStreamURL
+	}
+
+	req, err := http.NewRequest(http.MethodGet, streamURL+"bigriver/subPlayer.aspx", nil)
 	if err != nil {
 		return "", err
 	}
@@ -309,7 +349,12 @@ func (c *Client) GetStreamMeta(trackId, skuId, format int, streamParams *models.
 
 // GetPurchasedManUrl retrieves manifest URL for purchased content
 func (c *Client) GetPurchasedManUrl(skuID int, showID, userID, uguID string) (string, error) {
-	req, err := http.NewRequest(http.MethodGet, streamApiBase+"bigriver/vidPlayer.aspx", nil)
+	streamURL := streamApiBase
+	if c.BaseStreamURL != "" {
+		streamURL = c.BaseStreamURL
+	}
+
+	req, err := http.NewRequest(http.MethodGet, streamURL+"bigriver/vidPlayer.aspx", nil)
 	if err != nil {
 		return "", err
 	}

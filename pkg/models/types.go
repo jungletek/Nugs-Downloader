@@ -35,8 +35,14 @@ func (wc *WriteCounter) Write(p []byte) (int, error) {
 	var speed int64 = 0
 	n := len(p)
 	wc.Downloaded += int64(n)
-	percentage := float64(wc.Downloaded) / float64(wc.Total) * float64(100)
+
+	// Calculate percentage, handling division by zero
+	var percentage float64
+	if wc.Total > 0 {
+		percentage = float64(wc.Downloaded) / float64(wc.Total) * float64(100)
+	}
 	wc.Percentage = int(percentage)
+
 	toDivideBy := time.Now().UnixMilli() - wc.StartTime
 	if toDivideBy != 0 {
 		speed = int64(wc.Downloaded) / toDivideBy * 1000

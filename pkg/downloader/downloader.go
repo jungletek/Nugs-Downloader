@@ -265,7 +265,11 @@ func (d *Downloader) ChooseVariant(manifestUrl, wantRes string) (*m3u8.Variant, 
 		if wantVariant != nil {
 			break
 		} else {
-			wantRes = models.ResFallback[wantRes]
+			if fallback, exists := models.ResFallback[wantRes]; exists {
+				wantRes = fallback
+			} else {
+				break
+			}
 		}
 	}
 
