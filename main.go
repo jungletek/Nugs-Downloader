@@ -410,6 +410,27 @@ func checkUrl(_url string) (string, int) {
 	return "", 0
 }
 
+func getItemTypeName(mediaType int) string {
+	switch mediaType {
+	case 0:
+		return "album"
+	case 1, 2:
+		return "playlist"
+	case 3:
+		return "catalog_playlist"
+	case 4, 10:
+		return "video"
+	case 5:
+		return "artist"
+	case 6, 7, 8:
+		return "livestream"
+	case 9:
+		return "paid_livestream"
+	default:
+		return "unknown"
+	}
+}
+
 func extractLegToken(tokenStr string) (string, string, error) {
 	payload := strings.SplitN(tokenStr, ".", 3)[1]
 	decoded, err := base64.RawURLEncoding.DecodeString(payload)
@@ -1058,7 +1079,14 @@ func playlist(plistId, legacyToken string, cfg *Config, streamParams *StreamPara
 		err := processTrack(
 			plistPath, trackNum, trackTotal, cfg, &track.Track, streamParams)
 		if err != nil {
-			handleErr("Track failed.", err, false)
+			context := map[string]interface{}{
+				"playlist":  meta.PlayListName,
+				"track":     track.Track.SongTitle,
+				"track_num": trackNum,
+				"total":     trackTotal,
+			}
+			WrapError(err, context)
+			GetLogger().Error("Playlist track download failed", "track", track.Track.SongTitle, "playlist", meta.PlayListName)
 		}
 	}
 	return nil
@@ -1692,7 +1720,15 @@ func main() {
 			itemErr = paidLstream(itemId, uguID, cfg, streamParams)
 		}
 		if itemErr != nil {
-			handleErr("Item failed.", itemErr, false)
+			context := map[string]interface{}{
+				"item_type": getItemTypeName(mediaType),
+				"item_id":   itemId,
+				"item_num":  albumNum + 1,
+				"total":     albumTotal,
+				"url":       _url,
+			}
+			WrapError(itemErr, context)
+			GetLogger().Error("Item processing failed", "type", getItemTypeName(mediaType), "id", itemId, "url", _url)
 		}
 	}
 }
