@@ -98,7 +98,7 @@ func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamPara
 
 	for trackNum, track := range tracks {
 		trackNum++
-		err := p.ProcessTrack(albumPath, trackNum, trackTotal, &track, streamParams)
+		err := p.ProcessTrackWithMetadata(albumPath, trackNum, trackTotal, &track, streamParams, meta)
 		if err != nil {
 			context := map[string]interface{}{
 				"album":     meta.ArtistName + " - " + meta.ContainerInfo,
@@ -342,6 +342,11 @@ func (p *Processor) ProcessVideo(videoID, uguID string, streamParams *models.Str
 
 // ProcessTrack processes a single track
 func (p *Processor) ProcessTrack(folPath string, trackNum, trackTotal int, track *models.Track, streamParams *models.StreamParams) error {
+	return p.ProcessTrackWithMetadata(folPath, trackNum, trackTotal, track, streamParams, nil)
+}
+
+// ProcessTrackWithMetadata processes a single track with metadata
+func (p *Processor) ProcessTrackWithMetadata(folPath string, trackNum, trackTotal int, track *models.Track, streamParams *models.StreamParams, albumMeta *models.AlbArtResp) error {
 	origWantFmt := p.config.Format
 	wantFmt := origWantFmt
 	var (
@@ -374,8 +379,19 @@ func (p *Processor) ProcessTrack(folPath string, trackNum, trackTotal int, track
 
 	isHlsOnly := downloader.CheckIfHlsOnly(quals)
 
+	// Create metadata for the track
+	var metadata *models.TrackMetadata
+	if albumMeta != nil {
+		metadata = &models.TrackMetadata{
+			Title:    track.SongTitle,
+			Artist:   albumMeta.ArtistName,
+			Album:    albumMeta.ContainerInfo,
+			TrackNum: trackNum,
+		}
+	}
+
 	if isHlsOnly {
-		fmt.Println("HLS-only track. Only AAC is available, tags currently unsupported.")
+		fmt.Println("HLS-only track. Only AAC is available.")
 		chosenQual = quals[0]
 		err := p.downloader.ParseHlsMaster(chosenQual)
 		if err != nil {
@@ -416,9 +432,17 @@ func (p *Processor) ProcessTrack(folPath string, trackNum, trackTotal int, track
 	fmt.Printf("Downloading track %d of %d: %s - %s\n", trackNum, trackTotal, track.SongTitle, chosenQual.Specs)
 
 	if isHlsOnly {
-		err = p.downloader.HlsOnly(trackPath, chosenQual.URL, p.config.FfmpegNameStr)
+		if metadata != nil {
+			err = p.downloader.HlsOnlyWithMetadata(trackPath, chosenQual.URL, p.config.FfmpegNameStr, metadata)
+		} else {
+			err = p.downloader.HlsOnly(trackPath, chosenQual.URL, p.config.FfmpegNameStr)
+		}
 	} else {
-		err = p.downloader.DownloadTrack(trackPath, chosenQual.URL)
+		if metadata != nil {
+			err = p.downloader.DownloadTrackWithMetadata(trackPath, chosenQual.URL, metadata, p.config.FfmpegNameStr)
+		} else {
+			err = p.downloader.DownloadTrack(trackPath, chosenQual.URL)
+		}
 	}
 
 	if err != nil {

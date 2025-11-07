@@ -422,8 +422,97 @@ func (d *Downloader) HlsOnly(trackPath, manUrl, ffmpegNameStr string) error {
 		return err
 	}
 
-	err = TsToAac(decData, trackPath, ffmpegNameStr)
-	return err
+	// Convert to AAC with temporary filename, then tag it
+	tempAacPath := trackPath + ".tmp"
+	err = TsToAac(decData, tempAacPath, ffmpegNameStr)
+	if err != nil {
+		return err
+	}
+
+	// Tag the AAC file (metadata will be added by the caller)
+	// For now, just move the temp file to final location
+	err = os.Rename(tempAacPath, trackPath)
+	if err != nil {
+		os.Remove(tempAacPath) // Clean up on error
+		return err
+	}
+
+	return nil
+}
+
+// HlsOnlyWithMetadata processes HLS-only tracks with metadata tagging
+func (d *Downloader) HlsOnlyWithMetadata(trackPath, manUrl, ffmpegNameStr string, metadata *models.TrackMetadata) error {
+	media, err := d.apiClient.GetMediaPlaylist(manUrl)
+	if err != nil {
+		return err
+	}
+
+	tsUrl := media.Segments[0].URI
+	key := media.Key
+
+	// Construct full URLs if they're relative
+	manBase, query, err := d.GetManifestBase(manUrl)
+	if err != nil {
+		return err
+	}
+
+	// Construct full segment URL if it's relative
+	if !strings.HasPrefix(tsUrl, "http") {
+		tsUrl = manBase + tsUrl + query
+	}
+
+	// Construct full key URL if it's relative
+	keyUrl := key.URI
+	if !strings.HasPrefix(keyUrl, "http") {
+		keyUrl = manBase + key.URI
+	}
+
+	keyBytes, err := GetKey(keyUrl, d.apiClient)
+	if err != nil {
+		return err
+	}
+
+	iv, err := hex.DecodeString(key.IV[2:])
+	if err != nil {
+		return err
+	}
+
+	err = d.DownloadTrack("temp_enc.ts", tsUrl)
+	if err != nil {
+		return err
+	}
+
+	decData, err := DecryptTrack(keyBytes, iv)
+	if err != nil {
+		return err
+	}
+
+	err = os.Remove("temp_enc.ts")
+	if err != nil {
+		return err
+	}
+
+	// Convert to AAC with temporary filename
+	tempAacPath := trackPath + ".tmp"
+	err = TsToAac(decData, tempAacPath, ffmpegNameStr)
+	if err != nil {
+		return err
+	}
+
+	// Tag the AAC file with metadata
+	err = TagAudioFile(tempAacPath, trackPath, ffmpegNameStr, metadata)
+	if err != nil {
+		os.Remove(tempAacPath) // Clean up on error
+		return err
+	}
+
+	// Remove temp file
+	err = os.Remove(tempAacPath)
+	if err != nil {
+		fmt.Printf("Warning: failed to remove temp file %s: %v\n", tempAacPath, err)
+	}
+
+	return nil
 }
 
 // GetDuration extracts duration from video file using ffmpeg
@@ -597,6 +686,130 @@ func TsToMp4(VidPathTs, vidPath, ffmpegNameStr string, chapAvail bool) error {
 func Sanitise(filename string) string {
 	san := regexp.MustCompile(`[\/:*?"><|]`).ReplaceAllString(filename, "_")
 	return strings.TrimSuffix(san, "\t")
+}
+
+// TagAudioFile adds metadata to audio files using ffmpeg
+func TagAudioFile(inputPath, outputPath, ffmpegNameStr string, metadata *models.TrackMetadata) error {
+	var args []string
+
+	// Base arguments
+	args = append(args, "-hide_banner", "-i", inputPath)
+
+	// Add metadata flags
+	if metadata.Title != "" {
+		args = append(args, "-metadata", "title="+metadata.Title)
+	}
+	if metadata.Artist != "" {
+		args = append(args, "-metadata", "artist="+metadata.Artist)
+	}
+	if metadata.Album != "" {
+		args = append(args, "-metadata", "album="+metadata.Album)
+	}
+	if metadata.TrackNum > 0 {
+		args = append(args, "-metadata", fmt.Sprintf("track=%d", metadata.TrackNum))
+	}
+	if metadata.Year != "" {
+		args = append(args, "-metadata", "year="+metadata.Year)
+	}
+
+	// Copy codecs without re-encoding
+	args = append(args, "-c", "copy", outputPath)
+
+	var errBuffer bytes.Buffer
+	cmd := exec.Command(ffmpegNameStr, args...)
+	cmd.Stderr = &errBuffer
+
+	err := cmd.Run()
+	if err != nil {
+		errString := fmt.Sprintf("ffmpeg tagging failed: %s\n%s", err, errBuffer.String())
+		return errors.New(errString)
+	}
+
+	return nil
+}
+
+// TagVideoFile adds metadata to video files using ffmpeg
+func TagVideoFile(inputPath, outputPath, ffmpegNameStr string, metadata *models.TrackMetadata) error {
+	var args []string
+
+	// Base arguments
+	args = append(args, "-hide_banner", "-i", inputPath)
+
+	// Add metadata flags
+	if metadata.Title != "" {
+		args = append(args, "-metadata", "title="+metadata.Title)
+	}
+	if metadata.Artist != "" {
+		args = append(args, "-metadata", "artist="+metadata.Artist)
+	}
+	if metadata.Album != "" {
+		args = append(args, "-metadata", "album="+metadata.Album)
+	}
+
+	// Copy codecs without re-encoding
+	args = append(args, "-c", "copy", outputPath)
+
+	var errBuffer bytes.Buffer
+	cmd := exec.Command(ffmpegNameStr, args...)
+	cmd.Stderr = &errBuffer
+
+	err := cmd.Run()
+	if err != nil {
+		errString := fmt.Sprintf("ffmpeg video tagging failed: %s\n%s", err, errBuffer.String())
+		return errors.New(errString)
+	}
+
+	return nil
+}
+
+// DownloadTrackWithMetadata downloads a track and adds metadata
+func (d *Downloader) DownloadTrackWithMetadata(trackPath, url string, metadata *models.TrackMetadata, ffmpegNameStr string) error {
+	// Download to temporary file first
+	tempPath := trackPath + ".tmp"
+	f, err := fsutil.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	resp, err := d.apiClient.DownloadFile(url, "https://play.nugs.net/")
+	if err != nil {
+		os.Remove(tempPath) // Clean up on error
+		return err
+	}
+	defer resp.Body.Close()
+
+	totalBytes := resp.ContentLength
+	counter := &models.WriteCounter{
+		Total:     totalBytes,
+		TotalStr:  humanize.Bytes(uint64(totalBytes)),
+		StartTime: time.Now().UnixMilli(),
+	}
+
+	_, err = io.Copy(f, io.TeeReader(resp.Body, counter))
+	fmt.Println("")
+	if err != nil {
+		os.Remove(tempPath) // Clean up on error
+		return err
+	}
+
+	// Close the temp file before tagging
+	f.Close()
+
+	// Tag the file with metadata
+	err = TagAudioFile(tempPath, trackPath, ffmpegNameStr, metadata)
+	if err != nil {
+		os.Remove(tempPath) // Clean up on error
+		return err
+	}
+
+	// Remove temp file
+	err = os.Remove(tempPath)
+	if err != nil {
+		fmt.Printf("Warning: failed to remove temp file %s: %v\n", tempPath, err)
+	}
+
+	return nil
 }
 
 // FileExists checks if file exists

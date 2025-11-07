@@ -135,6 +135,15 @@ type Track struct {
 	SongTitle string `json:"songTitle"`
 }
 
+// TrackMetadata represents metadata for tagging audio files
+type TrackMetadata struct {
+	Title    string
+	Artist   string
+	Album    string
+	TrackNum int
+	Year     string
+}
+
 // Product represents a product
 type Product struct {
 	FormatStr string `json:"formatStr"`
