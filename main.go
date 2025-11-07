@@ -52,6 +52,9 @@ const (
 var (
 	jar, _ = cookiejar.New(nil)
 	client = &http.Client{Jar: jar}
+
+	// Stream metadata indices for API calls
+	streamMetaIndices = [4]int{1, 4, 7, 10}
 )
 
 var regexStrings = [11]string{
@@ -220,11 +223,11 @@ func parseCfg() (*Config, error) {
 	if args.VideoFormat != -1 {
 		cfg.VideoFormat = args.VideoFormat
 	}
-	if !(cfg.Format >= 1 && cfg.Format <= 5) {
-		return nil, errors.New("track Format must be between 1 and 5")
+	if !(cfg.Format >= MinAudioFormat && cfg.Format <= MaxAudioFormat) {
+		return nil, fmt.Errorf("track format must be between %d and %d", MinAudioFormat, MaxAudioFormat)
 	}
-	if !(cfg.VideoFormat >= 1 && cfg.VideoFormat <= 5) {
-		return nil, errors.New("video format must be between 1 and 5")
+	if !(cfg.VideoFormat >= MinVideoFormat && cfg.VideoFormat <= MaxVideoFormat) {
+		return nil, fmt.Errorf("video format must be between %d and %d", MinVideoFormat, MaxVideoFormat)
 	}
 	cfg.WantRes = resolveRes[cfg.VideoFormat]
 	if args.OutPath != "" {
@@ -862,7 +865,7 @@ func processTrack(folPath string, trackNum, trackTotal int, cfg *Config, track *
 	)
 	// Call the stream meta endpoint four times to get all avail formats since the formats can shift.
 	// This will ensure the right format's always chosen.
-	for _, i := range [4]int{1, 4, 7, 10} {
+	for _, i := range streamMetaIndices {
 		streamUrl, err := getStreamMeta(track.TrackID, 0, i, streamParams)
 		if err != nil {
 			fmt.Println("failed to get track stream metadata")
@@ -979,10 +982,10 @@ func album(albumID string, cfg *Config, streamParams *StreamParams, artResp *Alb
 	}
 	albumFolder := meta.ArtistName + " - " + strings.TrimRight(meta.ContainerInfo, " ")
 	fmt.Println(albumFolder)
-	if len(albumFolder) > 120 {
-		albumFolder = albumFolder[:120]
-		fmt.Println(
-			"Album folder name was chopped because it exceeds 120 characters.")
+	if len(albumFolder) > MaxFolderNameLen {
+		albumFolder = albumFolder[:MaxFolderNameLen]
+		fmt.Printf(
+			"Album folder name was chopped because it exceeds %d characters.", MaxFolderNameLen)
 	}
 	albumPath := filepath.Join(cfg.OutPath, sanitise(albumFolder))
 	err := makeDirs(albumPath)
@@ -1061,10 +1064,10 @@ func playlist(plistId, legacyToken string, cfg *Config, streamParams *StreamPara
 	meta := _meta.Response
 	plistName := meta.PlayListName
 	fmt.Println(plistName)
-	if len(plistName) > 120 {
-		plistName = plistName[:120]
-		fmt.Println(
-			"Playlist folder name was chopped because it exceeds 120 characters.")
+	if len(plistName) > MaxFolderNameLen {
+		plistName = plistName[:MaxFolderNameLen]
+		fmt.Printf(
+			"Playlist folder name was chopped because it exceeds %d characters.", MaxFolderNameLen)
 	}
 	plistPath := filepath.Join(cfg.OutPath, sanitise(plistName))
 	err = makeDirs(plistPath)
@@ -1486,10 +1489,10 @@ func video(videoID, uguID string, cfg *Config, streamParams *StreamParams, _meta
 	
 	videoFname := meta.ArtistName + " - " + strings.TrimRight(meta.ContainerInfo, " ")
 	fmt.Println(videoFname)
-	if len(videoFname) > 110 {
-		videoFname = videoFname[:110]
-		fmt.Println(
-			"Video filename was chopped because it exceeds 120 characters.")
+	if len(videoFname) > MaxVideoFilenameLen {
+		videoFname = videoFname[:MaxVideoFilenameLen]
+		fmt.Printf(
+			"Video filename was chopped because it exceeds %d characters.", MaxVideoFilenameLen)
 	}
 	if isLstream {
 		skuID = getLstreamSku(meta.ProductFormatList)
