@@ -236,7 +236,7 @@ func parseCfg() (*Config, error) {
 	if cfg.Token != "" {
 		cfg.Token = strings.TrimPrefix(cfg.Token, "Bearer ")
 	}
-	if cfg.UseFfmpegEnvVar {
+	if cfg.UseFfmpegEnvVar || runtime.GOOS == "windows" {
 		cfg.FfmpegNameStr = "ffmpeg"
 	} else {
 		cfg.FfmpegNameStr = "./ffmpeg"
