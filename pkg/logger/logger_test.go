@@ -19,13 +19,13 @@ type LoggerTestSuite struct {
 // SetupTest runs before each test
 func (suite *LoggerTestSuite) SetupTest() {
 	// Reset the global logger for each test
-	log = nil
+	ResetLogger()
 }
 
 // TearDownTest runs after each test
 func (suite *LoggerTestSuite) TearDownTest() {
 	// Reset the global logger after each test
-	log = nil
+	ResetLogger()
 }
 
 // TestGetLogger_Initialization tests logger initialization
@@ -213,7 +213,7 @@ func (suite *LoggerTestSuite) TestWrapError_LogLevel() {
 // TestLogger_ConcurrentAccess tests concurrent access to GetLogger
 func (suite *LoggerTestSuite) TestLogger_ConcurrentAccess() {
 	// Reset logger
-	log = nil
+	ResetLogger()
 
 	done := make(chan bool, 10)
 
