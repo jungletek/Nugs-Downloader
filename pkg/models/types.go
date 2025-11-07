@@ -15,19 +15,19 @@ import (
 
 // Quality represents audio/video quality information
 type Quality struct {
-	URL      string
-	Specs    string
-	Format   int
+	URL       string
+	Specs     string
+	Format    int
 	Extension string
 }
 
 // WriteCounter tracks download progress
 type WriteCounter struct {
-	Total     int64
-	TotalStr  string
+	Total      int64
+	TotalStr   string
 	Downloaded int64
 	Percentage int
-	StartTime int64
+	StartTime  int64
 }
 
 // Write implements io.Writer interface for progress tracking
@@ -65,13 +65,13 @@ type UserInfo struct {
 
 // SubInfo represents subscription information
 type SubInfo struct {
-	Plan                Plan     `json:"plan"`
-	Promo               Promo    `json:"promo"`
-	LegacySubscriptionID string  `json:"legacySubscriptionId"`
-	StartedAt           string   `json:"startedAt"`
-	EndsAt              string   `json:"endsAt"`
-	IsContentAccessible bool     `json:"isContentAccessible"`
-	ProductFormatList   []*ProductFormatList `json:"productFormatList"`
+	Plan                 Plan                 `json:"plan"`
+	Promo                Promo                `json:"promo"`
+	LegacySubscriptionID string               `json:"legacySubscriptionId"`
+	StartedAt            string               `json:"startedAt"`
+	EndsAt               string               `json:"endsAt"`
+	IsContentAccessible  bool                 `json:"isContentAccessible"`
+	ProductFormatList    []*ProductFormatList `json:"productFormatList"`
 }
 
 // Plan represents subscription plan
@@ -117,16 +117,16 @@ type AlbumMeta struct {
 
 // AlbArtResp represents album/artist response
 type AlbArtResp struct {
-	ArtistName        string         `json:"artistName"`
-	ContainerInfo     string         `json:"containerInfo"`
-	ContainerID       int            `json:"containerId"`
-	ContainerTypeStr  string         `json:"containerTypeStr"`
-	AvailabilityTypeStr string       `json:"availabilityTypeStr"`
-	Tracks            []Track        `json:"tracks"`
-	Songs             []Track        `json:"songs"`
-	Products          []Product      `json:"products"`
-	ProductFormatList []*ProductFormatList `json:"productFormatList"`
-	VideoChapters     []interface{}  `json:"videoChapters"`
+	ArtistName          string               `json:"artistName"`
+	ContainerInfo       string               `json:"containerInfo"`
+	ContainerID         int                  `json:"containerId"`
+	ContainerTypeStr    string               `json:"containerTypeStr"`
+	AvailabilityTypeStr string               `json:"availabilityTypeStr"`
+	Tracks              []Track              `json:"tracks"`
+	Songs               []Track              `json:"songs"`
+	Products            []Product            `json:"products"`
+	ProductFormatList   []*ProductFormatList `json:"productFormatList"`
+	VideoChapters       []interface{}        `json:"videoChapters"`
 }
 
 // Track represents a music track
@@ -199,8 +199,8 @@ type PlistMeta struct {
 
 // PlistResp represents playlist response
 type PlistResp struct {
-	PlayListName string       `json:"playListName"`
-	Items        []PlistItem  `json:"items"`
+	PlayListName string      `json:"playListName"`
+	Items        []PlistItem `json:"items"`
 }
 
 // PlistItem represents a playlist item
@@ -229,14 +229,14 @@ var RegexStrings = [11]string{
 	`^https://play.nugs.net/release/(\d+)$`,
 	`^https://play.nugs.net/#/playlists/playlist/(\d+)$`,
 	`^https://play.nugs.net/library/playlist/(\d+)$`,
-	`(^https://2nu.gs/[a-zA-Z\d]+$)` ,
+	`(^https://2nu.gs/[a-zA-Z\d]+$)`,
 	`^https://play.nugs.net/#/videos/artist/\d+/.+/(\d+)$`,
-	`^https://play.nugs.net/artist/(\d+)(?:/albums|/latest|)$`,
+	`^https://play.nugs.net/(?:browse/)?artist/(\d+)(?:/albums|/latest|)$`,
 	`^https://play.nugs.net/livestream/(\d+)/exclusive$`,
 	`^https://play.nugs.net/watch/livestreams/exclusive/(\d+)$`,
 	`^https://play.nugs.net/#/my-webcasts/\d+-(\d+)-\d+-\d+$`,
 	`^https://www.nugs.net/on/demandware.store/Sites-NugsNet-Site/d` +
-		`efault/(?:Stash-QueueVideo|NugsVideo-GetStashVideo)\?([a-zA-Z0-9=%&-]+$)` ,
+		`efault/(?:Stash-QueueVideo|NugsVideo-GetStashVideo)\?([a-zA-Z0-9=%&-]+$)`,
 	`^https://play.nugs.net/library/webcast/(\d+)$`,
 }
 
@@ -248,8 +248,8 @@ var QualityMap = map[string]Quality{
 	".flac?":   {Specs: "FLAC", Extension: ".flac", Format: 2},
 	".s360/":   {Specs: "360 Reality Audio", Extension: ".mp4", Format: 4},
 	".aac150/": {Specs: "150 Kbps AAC", Extension: ".m4a", Format: 5},
-	".m4a?":   {Specs: "AAC", Extension: ".m4a", Format: 5},
-	".m3u8?":  {Extension: ".m4a", Format: 6},
+	".m4a?":    {Specs: "AAC", Extension: ".m4a", Format: 5},
+	".m3u8?":   {Extension: ".m4a", Format: 6},
 }
 
 // Resolution mappings

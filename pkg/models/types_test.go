@@ -82,6 +82,23 @@ func (suite *ModelsTestSuite) TestCheckUrl_Playlist() {
 	assert.Equal(suite.T(), 1, mediaType)
 }
 
+// TestCheckUrl_Artist tests URL pattern matching for artists
+func (suite *ModelsTestSuite) TestCheckUrl_Artist() {
+	// Test old format
+	url := "https://play.nugs.net/artist/1125"
+	id, mediaType := CheckUrl(url)
+
+	assert.Equal(suite.T(), "1125", id)
+	assert.Equal(suite.T(), 5, mediaType)
+
+	// Test new browse format
+	url2 := "https://play.nugs.net/browse/artist/1125"
+	id2, mediaType2 := CheckUrl(url2)
+
+	assert.Equal(suite.T(), "1125", id2)
+	assert.Equal(suite.T(), 5, mediaType2)
+}
+
 // TestCheckUrl_Invalid tests invalid URL
 func (suite *ModelsTestSuite) TestCheckUrl_Invalid() {
 	url := "https://invalid-url.com"
