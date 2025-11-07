@@ -380,7 +380,24 @@ func (d *Downloader) HlsOnly(trackPath, manUrl, ffmpegNameStr string) error {
 	tsUrl := media.Segments[0].URI
 	key := media.Key
 
-	keyBytes, err := GetKey(key.URI, d.apiClient)
+	// Construct full URLs if they're relative
+	manBase, query, err := d.GetManifestBase(manUrl)
+	if err != nil {
+		return err
+	}
+
+	// Construct full segment URL if it's relative
+	if !strings.HasPrefix(tsUrl, "http") {
+		tsUrl = manBase + tsUrl + query
+	}
+
+	// Construct full key URL if it's relative
+	keyUrl := key.URI
+	if !strings.HasPrefix(keyUrl, "http") {
+		keyUrl = manBase + key.URI
+	}
+
+	keyBytes, err := GetKey(keyUrl, d.apiClient)
 	if err != nil {
 		return err
 	}
