@@ -144,6 +144,48 @@ type TrackMetadata struct {
 	Year     string
 }
 
+// Error types for better error classification
+type ErrorType int
+
+const (
+	ErrUnknown ErrorType = iota
+	ErrNetwork
+	ErrFileSystem
+	ErrDiskSpace
+	ErrCorruption
+	ErrFFmpeg
+	ErrTimeout
+	ErrAuthentication
+	ErrRateLimit
+)
+
+// DownloadError represents a structured error with type and user guidance
+type DownloadError struct {
+	Type       ErrorType
+	Message    string
+	UserGuide  string
+	Retryable  bool
+	Underlying error
+}
+
+func (e *DownloadError) Error() string {
+	if e.Underlying != nil {
+		return fmt.Sprintf("%s: %v", e.Message, e.Underlying)
+	}
+	return e.Message
+}
+
+// NewDownloadError creates a structured download error
+func NewDownloadError(errType ErrorType, message, userGuide string, retryable bool, underlying error) *DownloadError {
+	return &DownloadError{
+		Type:       errType,
+		Message:    message,
+		UserGuide:  userGuide,
+		Retryable:  retryable,
+		Underlying: underlying,
+	}
+}
+
 // Product represents a product
 type Product struct {
 	FormatStr string `json:"formatStr"`

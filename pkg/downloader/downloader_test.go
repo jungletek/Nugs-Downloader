@@ -468,9 +468,8 @@ func (suite *DownloaderTestSuite) TestTagVideoFile() {
 
 // TestDownloadTrackWithMetadata tests metadata-enabled track download
 func (suite *DownloaderTestSuite) TestDownloadTrackWithMetadata() {
-	// This would require mocking HTTP responses and ffmpeg
-	// For now, test that the function exists and has proper signature
-	downloader := NewDownloader(nil, nil)
+	// Test with proper API client setup (should not panic)
+	downloader := NewDownloader(suite.apiClient, suite.config)
 
 	// Test with nil metadata (should not panic)
 	err := downloader.DownloadTrackWithMetadata("test.m4a", "http://example.com", nil, "ffmpeg")
@@ -479,9 +478,8 @@ func (suite *DownloaderTestSuite) TestDownloadTrackWithMetadata() {
 
 // TestHlsOnlyWithMetadata tests metadata-enabled HLS processing
 func (suite *DownloaderTestSuite) TestHlsOnlyWithMetadata() {
-	// This would require complex mocking of HLS streams
-	// For now, test that the function exists and has proper signature
-	downloader := NewDownloader(nil, nil)
+	// Test with proper API client setup (should not panic)
+	downloader := NewDownloader(suite.apiClient, suite.config)
 
 	// Test with nil metadata (should not panic)
 	err := downloader.HlsOnlyWithMetadata("test.m4a", "http://example.com/manifest.m3u8", "ffmpeg", nil)

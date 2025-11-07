@@ -44,7 +44,7 @@ func NewProcessor(apiClient *api.Client, dl *downloader.Downloader, cfg *config.
 	}
 }
 
-// ProcessAlbum processes an album
+// ProcessAlbum processes an album with graceful error handling
 func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamParams, artResp *models.AlbArtResp) error {
 	var (
 		meta   *models.AlbArtResp
@@ -58,7 +58,7 @@ func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamPara
 		_meta, err := p.apiClient.GetAlbumMeta(albumID)
 		if err != nil {
 			logger.GetLogger().WithError(err).WithField("album_id", albumID).Error("Failed to get album metadata")
-			return err
+			return models.NewDownloadError(models.ErrNetwork, "Failed to get album metadata", "Check your internet connection and try again", true, err)
 		}
 		meta = _meta.Response
 		tracks = meta.Tracks
@@ -68,7 +68,7 @@ func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamPara
 	skuID := getVideoSku(meta.Products)
 
 	if skuID == 0 && trackTotal < 1 {
-		return fmt.Errorf("release has no tracks or videos")
+		return models.NewDownloadError(models.ErrUnknown, "Release has no tracks or videos", "This release may not be available for download", false, nil)
 	}
 
 	if skuID != 0 {
@@ -92,14 +92,27 @@ func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamPara
 	albumPath := filepath.Join(p.config.OutPath, downloader.Sanitise(albumFolder))
 	err := fsutil.MakeDirs(albumPath)
 	if err != nil {
-		fmt.Println("Failed to make album folder.")
-		return err
+		return models.NewDownloadError(models.ErrFileSystem, "Failed to create album folder", "Check write permissions for the download directory", false, err)
 	}
+
+	// Clean up any leftover temp files from previous runs
+	downloader.CleanupTempFiles(albumPath)
+
+	// Track download results for summary
+	var successCount, failureCount int
+	var failures []string
 
 	for trackNum, track := range tracks {
 		trackNum++
+		fmt.Printf("Processing track %d of %d: %s\n", trackNum, trackTotal, track.SongTitle)
+
 		err := p.ProcessTrackWithMetadata(albumPath, trackNum, trackTotal, &track, streamParams, meta)
 		if err != nil {
+			failureCount++
+			failureMsg := fmt.Sprintf("Track %d (%s): %v", trackNum, track.SongTitle, err)
+			failures = append(failures, failureMsg)
+
+			// Log the error with context
 			context := map[string]interface{}{
 				"album":     meta.ArtistName + " - " + meta.ContainerInfo,
 				"track":     track.SongTitle,
@@ -108,9 +121,37 @@ func (p *Processor) ProcessAlbum(albumID string, streamParams *models.StreamPara
 			}
 			logger.WrapError(err, context)
 			logger.GetLogger().Error("Track download failed", "track", track.SongTitle, "album", meta.ContainerInfo)
+
+			// Check if error is retryable
+			if dlErr, ok := err.(*models.DownloadError); ok && dlErr.Retryable {
+				fmt.Printf("WARNING: Track %d failed (retryable): %s\n", trackNum, dlErr.UserGuide)
+			} else {
+				fmt.Printf("ERROR: Track %d failed: %s\n", trackNum, err.Error())
+			}
+		} else {
+			successCount++
+			fmt.Printf("SUCCESS: Track %d completed: %s\n", trackNum, track.SongTitle)
 		}
 	}
 
+	// Provide summary
+	fmt.Printf("\nAlbum download summary: %d/%d tracks successful\n", successCount, trackTotal)
+
+	if failureCount > 0 {
+		fmt.Printf("%d tracks failed:\n", failureCount)
+		for _, failure := range failures {
+			fmt.Printf("   - %s\n", failure)
+		}
+
+		if successCount > 0 {
+			fmt.Println("Partial download completed. Failed tracks can be retried individually.")
+			return nil // Don't fail the entire album if some tracks succeeded
+		} else {
+			return models.NewDownloadError(models.ErrUnknown, "All tracks failed to download", "Check your internet connection and try again", true, nil)
+		}
+	}
+
+	fmt.Println("Album download completed successfully!")
 	return nil
 }
 
@@ -433,20 +474,30 @@ func (p *Processor) ProcessTrackWithMetadata(folPath string, trackNum, trackTota
 
 	if isHlsOnly {
 		if metadata != nil {
-			err = p.downloader.HlsOnlyWithMetadata(trackPath, chosenQual.URL, p.config.FfmpegNameStr, metadata)
+			err = p.processHlsOnlyWithMetadata(trackPath, chosenQual.URL, metadata)
 		} else {
-			err = p.downloader.HlsOnly(trackPath, chosenQual.URL, p.config.FfmpegNameStr)
+			err = p.processHlsOnly(trackPath, chosenQual.URL)
 		}
 	} else {
 		if metadata != nil {
-			err = p.downloader.DownloadTrackWithMetadata(trackPath, chosenQual.URL, metadata, p.config.FfmpegNameStr)
+			err = p.processTrackWithMetadata(trackPath, chosenQual.URL, metadata)
 		} else {
-			err = p.downloader.DownloadTrack(trackPath, chosenQual.URL)
+			err = p.processTrack(trackPath, chosenQual.URL)
 		}
 	}
 
 	if err != nil {
-		fmt.Println("Failed to download track.")
+		// Provide user-friendly error messages
+		if dlErr, ok := err.(*models.DownloadError); ok {
+			return dlErr // Already structured error
+		}
+		return models.NewDownloadError(models.ErrUnknown, "Track download failed", "Check the error details above", false, err)
+	}
+
+	// Validate the downloaded file
+	if err := downloader.ValidateAudioFile(trackPath, p.config.FfmpegNameStr); err != nil {
+		// Remove corrupted file
+		os.Remove(trackPath)
 		return err
 	}
 
@@ -534,33 +585,81 @@ func parseLstreamMeta(_meta *models.ArtistMeta) *models.AlbumMeta {
 	return parsed
 }
 
+// processTrack processes a track with robust error handling
+func (p *Processor) processTrack(trackPath, url string) error {
+	return p.downloader.SafeDownloadTrack(trackPath, url, 0) // 0 means unknown size
+}
+
+// processTrackWithMetadata processes a track with metadata and robust error handling
+func (p *Processor) processTrackWithMetadata(trackPath, url string, metadata *models.TrackMetadata) error {
+	// For now, use the existing method but with better error handling
+	err := p.downloader.DownloadTrackWithMetadata(trackPath, url, metadata, p.config.FfmpegNameStr)
+	if err != nil {
+		// Parse FFmpeg errors if they occur
+		if strings.Contains(err.Error(), "ffmpeg") {
+			errType, msg, guide := downloader.ParseFFmpegError(err, "")
+			return models.NewDownloadError(errType, msg, guide, false, err)
+		}
+		return models.NewDownloadError(models.ErrUnknown, "Track download with metadata failed", "Check FFmpeg installation and file permissions", false, err)
+	}
+	return nil
+}
+
+// processHlsOnly processes HLS-only track with robust error handling
+func (p *Processor) processHlsOnly(trackPath, manifestUrl string) error {
+	err := p.downloader.HlsOnly(trackPath, manifestUrl, p.config.FfmpegNameStr)
+	if err != nil {
+		// Parse FFmpeg errors
+		if strings.Contains(err.Error(), "ffmpeg") {
+			errType, msg, guide := downloader.ParseFFmpegError(err, "")
+			return models.NewDownloadError(errType, msg, guide, false, err)
+		}
+		return models.NewDownloadError(models.ErrFFmpeg, "HLS processing failed", "Check FFmpeg installation and network connection", true, err)
+	}
+	return nil
+}
+
+// processHlsOnlyWithMetadata processes HLS-only track with metadata and robust error handling
+func (p *Processor) processHlsOnlyWithMetadata(trackPath, manifestUrl string, metadata *models.TrackMetadata) error {
+	err := p.downloader.HlsOnlyWithMetadata(trackPath, manifestUrl, p.config.FfmpegNameStr, metadata)
+	if err != nil {
+		// Parse FFmpeg errors
+		if strings.Contains(err.Error(), "ffmpeg") {
+			errType, msg, guide := downloader.ParseFFmpegError(err, "")
+			return models.NewDownloadError(errType, msg, guide, false, err)
+		}
+		return models.NewDownloadError(models.ErrFFmpeg, "HLS processing with metadata failed", "Check FFmpeg installation and network connection", true, err)
+	}
+	return nil
+}
+
 func resolveCatPlistId(plistUrl string) (string, error) {
 	// Create a new HTTP client for this request
 	httpClient := &http.Client{}
 	req, err := httpClient.Get(plistUrl)
 	if err != nil {
-		return "", err
+		return "", models.NewDownloadError(models.ErrNetwork, "Failed to resolve playlist URL", "Check your internet connection", true, err)
 	}
 	defer req.Body.Close()
 
 	if req.StatusCode != http.StatusOK {
-		return "", errors.New(req.Status)
+		return "", models.NewDownloadError(models.ErrNetwork, "Playlist URL returned error", "The playlist may not be publicly available", false, errors.New(req.Status))
 	}
 
 	location := req.Request.URL.String()
 	u, err := url.Parse(location)
 	if err != nil {
-		return "", err
+		return "", models.NewDownloadError(models.ErrUnknown, "Invalid playlist URL format", "Check the playlist URL and try again", false, err)
 	}
 
 	q, err := url.ParseQuery(u.RawQuery)
 	if err != nil {
-		return "", err
+		return "", models.NewDownloadError(models.ErrUnknown, "Failed to parse playlist URL", "The playlist URL format is invalid", false, err)
 	}
 
 	resolvedId := q.Get("plGUID")
 	if resolvedId == "" {
-		return "", errors.New("not a catalog playlist")
+		return "", models.NewDownloadError(models.ErrUnknown, "Not a catalog playlist", "This appears to be a user playlist, not a catalog playlist", false, nil)
 	}
 
 	return resolvedId, nil

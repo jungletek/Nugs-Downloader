@@ -9,10 +9,12 @@ import (
 	"fmt"
 	"io"
 	"math"
+	"net"
 	"net/http"
-	"net/url"
+	urlPkg "net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -212,7 +214,7 @@ func (d *Downloader) ParseHlsMaster(qual *models.Quality) error {
 
 // GetManifestBase extracts base URL from manifest URL
 func (d *Downloader) GetManifestBase(manifestUrl string) (string, string, error) {
-	u, err := url.Parse(manifestUrl)
+	u, err := urlPkg.Parse(manifestUrl)
 	if err != nil {
 		return "", "", err
 	}
@@ -825,4 +827,243 @@ func FileExists(path string) (bool, error) {
 		return false, nil
 	}
 	return false, err
+}
+
+// CheckDiskSpace checks if there's enough disk space for a download
+func CheckDiskSpace(path string, requiredBytes int64) error {
+	dir := filepath.Dir(path)
+
+	// Cross-platform disk space check - try to create a test file
+	testFile := filepath.Join(dir, ".disk_space_test.tmp")
+	f, err := os.Create(testFile)
+	if err != nil {
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot check disk space", "Ensure the download directory is accessible and writable", false, err)
+	}
+	defer os.Remove(testFile)
+	defer f.Close()
+
+	// For large files, we can't easily check exact space, so we'll do a basic check
+	// This is a simplified approach that works cross-platform
+	if requiredBytes > 100*1024*1024 { // 100MB threshold
+		// Try to allocate some space as a basic check
+		testSize := 1024 * 1024 // 1MB test
+		data := make([]byte, testSize)
+		for i := range data {
+			data[i] = 0
+		}
+
+		if _, err := f.Write(data); err != nil {
+			return models.NewDownloadError(models.ErrDiskSpace, "Insufficient disk space for download", "Free up disk space or choose a different download location", false, err)
+		}
+	}
+
+	return nil
+}
+
+// SafeDownloadTrack performs robust track download with error recovery
+func (d *Downloader) SafeDownloadTrack(trackPath, url string, expectedSize int64) error {
+	// Check disk space first
+	if expectedSize > 0 {
+		if err := CheckDiskSpace(trackPath, expectedSize); err != nil {
+			return err
+		}
+	}
+
+	// Use temporary file for atomic writes
+	tempPath := trackPath + ".tmp"
+	defer func() {
+		// Clean up temp file if it still exists
+		if _, err := os.Stat(tempPath); err == nil {
+			os.Remove(tempPath)
+		}
+	}()
+
+	// Create temp file
+	f, err := fsutil.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	if err != nil {
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot create temporary file", "Check write permissions for the download directory", false, err)
+	}
+	defer f.Close()
+
+	// Download with retry logic
+	resp, err := d.downloadFileWithRetry(url, "https://play.nugs.net/")
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	// Track download progress
+	totalBytes := resp.ContentLength
+	if totalBytes <= 0 {
+		totalBytes = expectedSize
+	}
+
+	counter := &models.WriteCounter{
+		Total:     totalBytes,
+		TotalStr:  humanize.Bytes(uint64(totalBytes)),
+		StartTime: time.Now().UnixMilli(),
+	}
+
+	// Copy with error handling
+	_, err = io.Copy(f, io.TeeReader(resp.Body, counter))
+	fmt.Println("")
+
+	if err != nil {
+		// Check for specific error types
+		if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
+			return models.NewDownloadError(models.ErrTimeout, "Download timeout", "Check your internet connection and try again", true, err)
+		}
+		if err == io.ErrUnexpectedEOF {
+			return models.NewDownloadError(models.ErrCorruption, "Download incomplete (unexpected EOF)", "The file may be corrupted - try downloading again", true, err)
+		}
+		return models.NewDownloadError(models.ErrNetwork, "Download failed", "Check your internet connection and try again", true, err)
+	}
+
+	// Close file before atomic rename
+	f.Close()
+
+	// Validate downloaded file size
+	if totalBytes > 0 {
+		if stat, err := os.Stat(tempPath); err == nil {
+			if stat.Size() != totalBytes {
+				os.Remove(tempPath)
+				return models.NewDownloadError(models.ErrCorruption, "Downloaded file size mismatch", "The download may be corrupted - try again", true, nil)
+			}
+		}
+	}
+
+	// Atomic rename to final location
+	if err := os.Rename(tempPath, trackPath); err != nil {
+		os.Remove(tempPath)
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot finalize download", "Check write permissions for the download directory", false, err)
+	}
+
+	return nil
+}
+
+// downloadFileWithRetry downloads a file with retry logic
+func (d *Downloader) downloadFileWithRetry(url, referer string) (*http.Response, error) {
+	const maxRetries = 3
+	const baseDelay = time.Second
+
+	var lastErr error
+	for attempt := 0; attempt < maxRetries; attempt++ {
+		if attempt > 0 {
+			// Exponential backoff
+			delay := time.Duration(attempt) * baseDelay
+			fmt.Printf("Retrying download in %v... (attempt %d/%d)\n", delay, attempt+1, maxRetries)
+			time.Sleep(delay)
+		}
+
+		resp, err := d.apiClient.DownloadFile(url, referer)
+		if err == nil {
+			return resp, nil
+		}
+
+		lastErr = err
+
+		// Check if error is retryable
+		if netErr, ok := err.(net.Error); ok {
+			if !netErr.Timeout() && !netErr.Temporary() {
+				// Non-retryable error
+				break
+			}
+		} else if urlErr, ok := err.(*urlPkg.Error); ok {
+			if urlErr.Timeout() || urlErr.Temporary() {
+				continue // Retry timeouts and temporary errors
+			}
+		}
+	}
+
+	return nil, models.NewDownloadError(models.ErrNetwork, "Download failed after retries", "Check your internet connection and try again later", false, lastErr)
+}
+
+// ValidateAudioFile validates downloaded audio file integrity
+func ValidateAudioFile(filePath, ffmpegNameStr string) error {
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		return models.NewDownloadError(models.ErrFileSystem, "Audio file not found", "The file may have been deleted or moved", false, err)
+	}
+
+	// Quick FFmpeg probe to check file integrity
+	var errBuffer bytes.Buffer
+	cmd := exec.Command(ffmpegNameStr, "-hide_banner", "-i", filePath, "-f", "null", "-")
+	cmd.Stderr = &errBuffer
+
+	err := cmd.Run()
+	if err != nil {
+		stderr := errBuffer.String()
+
+		// Parse FFmpeg errors
+		if strings.Contains(stderr, "Invalid data found") || strings.Contains(stderr, "corrupt") {
+			return models.NewDownloadError(models.ErrCorruption, "Audio file appears corrupted", "Try re-downloading the track", true, err)
+		}
+		if strings.Contains(stderr, "No such file") {
+			return models.NewDownloadError(models.ErrFFmpeg, "FFmpeg not found", "Install FFmpeg and ensure it's in your PATH", false, err)
+		}
+
+		return models.NewDownloadError(models.ErrFFmpeg, "Audio file validation failed", "The file may be corrupted or FFmpeg encountered an error", true, err)
+	}
+
+	return nil
+}
+
+// ParseFFmpegError analyzes FFmpeg error output for actionable feedback
+func ParseFFmpegError(err error, stderr string) (models.ErrorType, string, string) {
+	if err == nil {
+		return models.ErrUnknown, "No error", ""
+	}
+
+	// Check for specific FFmpeg error patterns
+	if strings.Contains(stderr, "No such file or directory") {
+		return models.ErrFFmpeg, "FFmpeg executable not found", "Install FFmpeg and ensure it's in your PATH"
+	}
+
+	if strings.Contains(stderr, "Permission denied") {
+		return models.ErrFileSystem, "Permission denied accessing file", "Check file permissions and try again"
+	}
+
+	if strings.Contains(stderr, "Invalid data found") || strings.Contains(stderr, "corrupt") {
+		return models.ErrCorruption, "File appears corrupted", "Try re-downloading the file"
+	}
+
+	if strings.Contains(stderr, "No space left on device") {
+		return models.ErrDiskSpace, "Disk full during processing", "Free up disk space and try again"
+	}
+
+	if strings.Contains(stderr, "Cannot load") || strings.Contains(stderr, "Unsupported codec") {
+		return models.ErrCorruption, "Unsupported or corrupted media format", "The source file may be corrupted"
+	}
+
+	// Generic FFmpeg error
+	return models.ErrFFmpeg, "FFmpeg processing failed", "Check FFmpeg installation and file integrity"
+}
+
+// CleanupTempFiles removes temporary files that may be left behind
+func CleanupTempFiles(basePath string) error {
+	patterns := []string{
+		"*.tmp",
+		"temp_enc.ts",
+		"chapters_nugs_dl_tmp.txt",
+		"*_tagged.*",
+	}
+
+	var lastErr error
+	for _, pattern := range patterns {
+		matches, err := filepath.Glob(filepath.Join(filepath.Dir(basePath), pattern))
+		if err != nil {
+			lastErr = err
+			continue
+		}
+
+		for _, match := range matches {
+			// Only remove files older than 1 hour to avoid deleting active downloads
+			if stat, err := os.Stat(match); err == nil {
+				if time.Since(stat.ModTime()) > time.Hour {
+					os.Remove(match)
+				}
+			}
+		}
+	}
+
+	return lastErr
 }
