@@ -20,29 +20,34 @@ import (
 	"strings"
 	"time"
 
-	"github.com/dustin/go-humanize"
-	"github.com/grafov/m3u8"
 	"main/pkg/api"
 	"main/pkg/config"
 	"main/pkg/fsutil"
 	"main/pkg/models"
+
+	"github.com/dustin/go-humanize"
+	"github.com/grafov/m3u8"
 )
 
 // Downloader handles downloading and processing of media content
 type Downloader struct {
-	apiClient *api.Client
-	config    *config.Config
+	apiClient     *api.Client
+	config        *config.Config
+	resumeManager *ResumeManager
 }
 
 // NewDownloader creates a new downloader instance
 func NewDownloader(apiClient *api.Client, cfg *config.Config) *Downloader {
+	// Initialize resume manager with a state directory in the user's home directory
+	stateDir := filepath.Join(os.Getenv("HOME"), ".nugs-downloader", "resume")
+	resumeManager := NewResumeManager(stateDir)
+
 	return &Downloader{
-		apiClient: apiClient,
-		config:    cfg,
+		apiClient:     apiClient,
+		config:        cfg,
+		resumeManager: resumeManager,
 	}
 }
-
-
 
 // DownloadTrack downloads a single track
 func (d *Downloader) DownloadTrack(trackPath, url string) error {
@@ -107,9 +112,9 @@ func (d *Downloader) DownloadVideo(videoPath, url string) error {
 
 	totalBytes := do.ContentLength
 	counter := &models.WriteCounter{
-		Total:     totalBytes,
-		TotalStr:  humanize.Bytes(uint64(totalBytes)),
-		StartTime: time.Now().UnixMilli(),
+		Total:      totalBytes,
+		TotalStr:   humanize.Bytes(uint64(totalBytes)),
+		StartTime:  time.Now().UnixMilli(),
 		Downloaded: startByte,
 	}
 	_, err = io.Copy(f, io.TeeReader(do.Body, counter))
@@ -768,13 +773,37 @@ func TagVideoFile(inputPath, outputPath, ffmpegNameStr string, metadata *models.
 	return nil
 }
 
-// DownloadTrackWithMetadata downloads a track and adds metadata
+// DownloadTrackWithMetadata downloads a track and adds metadata with resume support
 func (d *Downloader) DownloadTrackWithMetadata(trackPath, url string, metadata *models.TrackMetadata, ffmpegNameStr string) error {
+	// Check for existing resume state
+	resumeState, err := d.resumeManager.LoadState(trackPath)
+	if err != nil {
+		return fmt.Errorf("failed to load resume state: %w", err)
+	}
+
+	// If we have a valid resume state, try to resume
+	if resumeState != nil {
+		if err := d.resumeManager.ValidatePartialDownload(resumeState); err == nil {
+			fmt.Printf("Resuming download from byte %d...\n", resumeState.DownloadedSize)
+			return d.resumeTrackDownload(trackPath, url, resumeState, metadata, ffmpegNameStr)
+		} else {
+			// Resume state is invalid, clean it up and start fresh
+			fmt.Printf("Resume state invalid (%v), starting fresh download...\n", err)
+			d.resumeManager.DeleteState(trackPath)
+		}
+	}
+
+	// Start fresh download
+	return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
+}
+
+// downloadTrackFresh performs a fresh track download without resume
+func (d *Downloader) downloadTrackFresh(trackPath, url string, metadata *models.TrackMetadata, ffmpegNameStr string) error {
 	// Download to temporary file first
 	tempPath := trackPath + ".tmp"
-	f, err := fsutil.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY, 0)
+	f, err := fsutil.OpenFile(tempPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
-		return err
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot create temporary file", "Check write permissions for the download directory", false, err)
 	}
 	defer f.Close()
 
@@ -786,17 +815,61 @@ func (d *Downloader) DownloadTrackWithMetadata(trackPath, url string, metadata *
 	defer resp.Body.Close()
 
 	totalBytes := resp.ContentLength
+
+	// Create resume state for tracking
+	resumeState := d.resumeManager.CreateInitialState(trackPath, url, totalBytes, resp.Header.Get("ETag"))
+	if err := d.resumeManager.SaveState(resumeState); err != nil {
+		fmt.Printf("Warning: failed to save resume state: %v\n", err)
+	}
+
 	counter := &models.WriteCounter{
 		Total:     totalBytes,
 		TotalStr:  humanize.Bytes(uint64(totalBytes)),
 		StartTime: time.Now().UnixMilli(),
 	}
 
-	_, err = io.Copy(f, io.TeeReader(resp.Body, counter))
+	// Download with progress tracking and resume state updates
+	buf := make([]byte, 32*1024) // 32KB buffer
+	totalDownloaded := int64(0)
+
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			_, writeErr := f.Write(buf[:n])
+			if writeErr != nil {
+				os.Remove(tempPath)
+				d.resumeManager.DeleteState(trackPath)
+				return models.NewDownloadError(models.ErrFileSystem, "Failed to write to temporary file", "Check disk space and permissions", false, writeErr)
+			}
+
+			totalDownloaded += int64(n)
+			counter.Downloaded = totalDownloaded
+
+			// Update resume state periodically (every 1MB)
+			if totalDownloaded%1024*1024 == 0 {
+				resumeState.DownloadedSize = totalDownloaded
+				if err := d.resumeManager.SaveState(resumeState); err != nil {
+					fmt.Printf("Warning: failed to update resume state: %v\n", err)
+				}
+			}
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			os.Remove(tempPath)
+			d.resumeManager.DeleteState(trackPath)
+			return models.NewDownloadError(models.ErrNetwork, "Download failed", "Check your internet connection", true, readErr)
+		}
+	}
+
 	fmt.Println("")
-	if err != nil {
-		os.Remove(tempPath) // Clean up on error
-		return err
+
+	// Final resume state update
+	resumeState.DownloadedSize = totalDownloaded
+	if err := d.resumeManager.SaveState(resumeState); err != nil {
+		fmt.Printf("Warning: failed to save final resume state: %v\n", err)
 	}
 
 	// Close the temp file before tagging
@@ -806,14 +879,133 @@ func (d *Downloader) DownloadTrackWithMetadata(trackPath, url string, metadata *
 	err = TagAudioFile(tempPath, trackPath, ffmpegNameStr, metadata)
 	if err != nil {
 		os.Remove(tempPath) // Clean up on error
+		d.resumeManager.DeleteState(trackPath)
 		return err
 	}
 
-	// Remove temp file
+	// Remove temp file and resume state (download complete)
 	err = os.Remove(tempPath)
 	if err != nil {
 		fmt.Printf("Warning: failed to remove temp file %s: %v\n", tempPath, err)
 	}
+
+	d.resumeManager.DeleteState(trackPath) // Clean up successful download state
+
+	return nil
+}
+
+// resumeTrackDownload resumes a partial track download
+func (d *Downloader) resumeTrackDownload(trackPath, url string, resumeState *ResumeState, metadata *models.TrackMetadata, ffmpegNameStr string) error {
+	tempPath := trackPath + ".tmp"
+
+	// Check if temp file exists and is valid
+	if stat, err := os.Stat(tempPath); err != nil {
+		if os.IsNotExist(err) {
+			// Temp file missing, start fresh
+			fmt.Println("Temporary file missing, starting fresh download...")
+			d.resumeManager.DeleteState(trackPath)
+			return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
+		}
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot access temporary file", "Check file permissions", false, err)
+	} else if stat.Size() != resumeState.DownloadedSize {
+		// Size mismatch, start fresh
+		fmt.Printf("Temporary file size mismatch (expected %d, got %d), starting fresh...\n",
+			resumeState.DownloadedSize, stat.Size())
+		os.Remove(tempPath)
+		d.resumeManager.DeleteState(trackPath)
+		return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
+	}
+
+	// Open temp file for appending
+	f, err := os.OpenFile(tempPath, os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		return models.NewDownloadError(models.ErrFileSystem, "Cannot open temporary file for resume", "Check file permissions", false, err)
+	}
+	defer f.Close()
+
+	// Send Range request for remaining bytes
+	resp, err := SendRangeRequest(d.apiClient.GetHTTPClient(), url, resumeState.DownloadedSize, nil)
+	if err != nil {
+		// Range requests not supported, start fresh
+		fmt.Printf("Server doesn't support range requests (%v), starting fresh download...\n", err)
+		f.Close()
+		os.Remove(tempPath)
+		d.resumeManager.DeleteState(trackPath)
+		return d.downloadTrackFresh(trackPath, url, metadata, ffmpegNameStr)
+	}
+	defer resp.Body.Close()
+
+	counter := &models.WriteCounter{
+		Total:      resumeState.TotalSize,
+		TotalStr:   humanize.Bytes(uint64(resumeState.TotalSize)),
+		StartTime:  time.Now().UnixMilli(),
+		Downloaded: resumeState.DownloadedSize,
+	}
+
+	// Download remaining bytes with progress tracking
+	buf := make([]byte, 32*1024) // 32KB buffer
+	totalDownloaded := resumeState.DownloadedSize
+
+	for {
+		n, readErr := resp.Body.Read(buf)
+		if n > 0 {
+			_, writeErr := f.Write(buf[:n])
+			if writeErr != nil {
+				f.Close()
+				os.Remove(tempPath)
+				d.resumeManager.DeleteState(trackPath)
+				return models.NewDownloadError(models.ErrFileSystem, "Failed to write to temporary file", "Check disk space and permissions", false, writeErr)
+			}
+
+			totalDownloaded += int64(n)
+			counter.Downloaded = totalDownloaded
+
+			// Update resume state periodically (every 1MB)
+			if totalDownloaded%1024*1024 == 0 {
+				resumeState.DownloadedSize = totalDownloaded
+				if err := d.resumeManager.SaveState(resumeState); err != nil {
+					fmt.Printf("Warning: failed to update resume state: %v\n", err)
+				}
+			}
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				break
+			}
+			f.Close()
+			os.Remove(tempPath)
+			d.resumeManager.DeleteState(trackPath)
+			return models.NewDownloadError(models.ErrNetwork, "Resume download failed", "Check your internet connection", true, readErr)
+		}
+	}
+
+	fmt.Println("")
+
+	// Final resume state update
+	resumeState.DownloadedSize = totalDownloaded
+	if err := d.resumeManager.SaveState(resumeState); err != nil {
+		fmt.Printf("Warning: failed to save final resume state: %v\n", err)
+	}
+
+	// Close the temp file before tagging
+	f.Close()
+
+	// Tag the file with metadata
+	err = TagAudioFile(tempPath, trackPath, ffmpegNameStr, metadata)
+	if err != nil {
+		os.Remove(tempPath) // Clean up on error
+		d.resumeManager.DeleteState(trackPath)
+		return err
+	}
+
+	// Remove temp file and resume state (download complete)
+	err = os.Remove(tempPath)
+	if err != nil {
+		fmt.Printf("Warning: failed to remove temp file %s: %v\n", tempPath, err)
+	}
+
+	d.resumeManager.DeleteState(trackPath) // Clean up successful download state
 
 	return nil
 }
